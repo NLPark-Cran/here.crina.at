@@ -136,9 +136,9 @@ async def logout():
 
 
 @router.get("/dev-login")
-async def dev_login(nickname: str = "镜听", owner: bool = True, db: AsyncSession = Depends(get_db)):
-    """仅 DEBUG 模式可用的测试登录"""
-    if not settings.debug:
+async def dev_login(request: Request, nickname: str = "镜听", owner: bool = True, db: AsyncSession = Depends(get_db)):
+    """测试登录：仅 DEBUG 模式 + 直连后端（无代理头）可用"""
+    if not settings.debug or request.headers.get("x-forwarded-for"):
         raise HTTPException(404, "not found")
     import hashlib as _hl
     fake_id = int(_hl.md5(nickname.encode()).hexdigest()[:8], 16) % 10**8
