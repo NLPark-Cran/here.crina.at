@@ -5,6 +5,7 @@ import { postsApi, spaceApi, ApiError } from '../api/client'
 import type { GarbageItem, Post } from '../api/types'
 import { CharacterAvatar } from '../components/CharacterAvatar'
 import { EmptyState } from '../components/EmptyState'
+import { ZoomableImage } from '../components/ZoomableImage'
 import { relativeTime } from '../lib/time'
 import { useAuth } from '../store/auth'
 
@@ -157,7 +158,11 @@ export function ParlorPage() {
               </div>
               <p className="mt-3 text-[15px] leading-relaxed whitespace-pre-wrap">{p.content}</p>
               {p.image_url && (
-                <img src={p.image_url} alt="" className="mt-3 rounded-xl max-h-72 object-cover" />
+                <ZoomableImage
+                  src={p.image_url}
+                  alt=""
+                  className="mt-3 rounded-xl max-h-72 object-cover"
+                />
               )}
 
               {/* 回复区 */}

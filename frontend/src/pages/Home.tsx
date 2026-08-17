@@ -5,6 +5,7 @@ import { DoorOpen, Sparkles, MessageCircleHeart } from 'lucide-react'
 import { postsApi, probeImage, spaceApi } from '../api/client'
 import type { Character, Post } from '../api/types'
 import { CharacterAvatar } from '../components/CharacterAvatar'
+import { WardrobeSection } from '../components/Wardrobe'
 import { greeting, relativeTime } from '../lib/time'
 import { useAuth } from '../store/auth'
 
@@ -155,6 +156,9 @@ export function HomePage() {
           )}
         </div>
       </section>
+
+      {/* crina 的衣橱与小金库 */}
+      <WardrobeSection />
 
       {/* 客厅近况 */}
       <section>

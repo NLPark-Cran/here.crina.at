@@ -16,6 +16,7 @@ import type { AgentTask, TaskStatus } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { EmptyState } from '../components/EmptyState'
 import { relativeTime } from '../lib/time'
+import { useAuth } from '../store/auth'
 
 const STATUS_META: Record<TaskStatus, { label: string; cls: string }> = {
   queued: { label: '排队中', cls: 'bg-qiule/15 text-qiule' },
@@ -41,6 +42,7 @@ export function BoardPage() {
 }
 
 function BoardInner() {
+  const { user } = useAuth()
   const [tasks, setTasks] = useState<AgentTask[]>([])
   const [loaded, setLoaded] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
@@ -50,6 +52,7 @@ function BoardInner() {
   const [error, setError] = useState('')
   const [quotaHit, setQuotaHit] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [renovate, setRenovate] = useState(false)
 
   const load = useCallback(() => {
     agentApi
@@ -67,9 +70,10 @@ function BoardInner() {
     setError('')
     setQuotaHit(false)
     try {
-      await agentApi.create(title.trim(), prompt.trim())
+      await agentApi.create(title.trim(), prompt.trim(), renovate ? 'renovate' : 'sandbox')
       setTitle('')
       setPrompt('')
+      setRenovate(false)
       setFormOpen(false)
       load()
     } catch (e) {
@@ -142,6 +146,30 @@ function BoardInner() {
                 maxLength={8000}
                 className="mt-3 w-full resize-none bg-paper rounded-xl px-4 py-3 text-sm leading-relaxed outline-none border border-warm-line focus:border-crina/50"
               />
+              {user?.is_owner && (
+                <button
+                  type="button"
+                  onClick={() => setRenovate((v) => !v)}
+                  className={`mt-3 w-full flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-left transition-colors ${
+                    renovate ? 'border-anfeng/40 bg-anfeng/6' : 'border-warm-line bg-paper hover:bg-cream'
+                  }`}
+                >
+                  <Hammer className={`w-4 h-4 mt-0.5 shrink-0 ${renovate ? 'text-anfeng' : 'text-ink-soft'}`} />
+                  <span>
+                    <span className={`text-sm ${renovate ? 'text-anfeng font-medium' : ''}`}>这是空间装修委托</span>
+                    <span className="block mt-0.5 text-xs text-ink-soft leading-relaxed">
+                      她会直接修改空间的前端代码并构建上线。想改哪里，写在纸条上就行。
+                    </span>
+                  </span>
+                  <span
+                    className={`ml-auto mt-0.5 w-9 h-5 rounded-full p-0.5 transition-colors shrink-0 ${
+                      renovate ? 'bg-anfeng' : 'bg-warm-line'
+                    }`}
+                  >
+                    <span className={`block w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${renovate ? 'translate-x-4' : ''}`} />
+                  </span>
+                </button>
+              )}
               <div className="flex items-center justify-between mt-3">
                 <span className="text-xs text-ink-soft/70">{prompt.length}/8000</span>
                 <button
@@ -312,6 +340,12 @@ function TaskCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium truncate">{task.title}</span>
+            {task.target === 'renovate' && (
+              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full bg-anfeng/10 text-anfeng">
+                <Hammer className="w-3 h-3" />
+                装修
+              </span>
+            )}
             <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${displayMeta.cls}`}>
               {displayStatus === 'running' && <Loader2 className="inline w-3 h-3 mr-0.5 animate-spin" />}
               {displayMeta.label}

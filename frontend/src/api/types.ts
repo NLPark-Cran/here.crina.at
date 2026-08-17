@@ -5,6 +5,8 @@ export interface User {
   avatar_url: string | null
   is_owner: boolean
   relation_tier: string
+  email?: string | null
+  notify_email?: boolean
 }
 
 export interface MeOptional {
@@ -66,6 +68,8 @@ export interface Conversation {
   mode: ChatMode
   title: string | null
   updated_at: string
+  /** 后端暂未返回，预留：最后一条消息预览 */
+  last_message?: string | null
 }
 
 export interface ChatMessage {
@@ -133,11 +137,14 @@ export interface WikiPage {
 // ---------- 委托板 ----------
 export type TaskStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
+export type TaskTarget = 'sandbox' | 'renovate'
+
 export interface AgentTask {
   id: string
   title: string
   prompt: string
   status: TaskStatus
+  target: TaskTarget
   result_summary: string | null
   created_at: string
   finished_at: string | null
@@ -177,4 +184,28 @@ export interface EmindImportResult {
   ok: boolean
   imported: { conversations: number; messages: number; memories: number }
   message: string
+}
+
+// ---------- 衣橱与小金库 ----------
+export interface WardrobeItem {
+  id: string
+  kind: 'outfit' | 'decor'
+  title: string
+  image_url: string
+  cost: number
+  note: string
+  wearing: boolean
+  created_at: string
+}
+
+export interface LedgerEntry {
+  delta: number
+  reason: string
+  created_at: string
+}
+
+export interface WardrobeData {
+  balance: number
+  items: WardrobeItem[]
+  ledger: LedgerEntry[]
 }

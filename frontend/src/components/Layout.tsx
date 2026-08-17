@@ -32,11 +32,27 @@ export function Layout() {
       {/* 桌面端顶部导航 */}
       <header className="sticky top-0 z-40 backdrop-blur-md bg-cream/80 border-b border-warm-line">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-2">
-          <NavLink to="/" className="flex items-center gap-2 shrink-0">
-            <span className="w-7 h-7 rounded-full bg-gradient-to-br from-crina to-crina-deep flex items-center justify-center text-white text-sm font-title shadow-sm">
-              镜
+          <NavLink to="/" className="flex items-center gap-2 shrink-0 min-w-0">
+            {user ? (
+              user.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt={user.nickname}
+                  className="w-7 h-7 rounded-full object-cover shadow-sm"
+                />
+              ) : (
+                <span className="w-7 h-7 rounded-full bg-gradient-to-br from-crina to-crina-deep flex items-center justify-center text-white text-sm font-title shadow-sm">
+                  {user.nickname.slice(0, 1)}
+                </span>
+              )
+            ) : (
+              <span className="w-7 h-7 rounded-full bg-gradient-to-br from-crina to-crina-deep flex items-center justify-center text-white text-sm font-title shadow-sm">
+                镜
+              </span>
+            )}
+            <span className="font-title text-lg tracking-wide truncate">
+              {user ? `${user.nickname} 的空间` : '镜听空间'}
             </span>
-            <span className="font-title text-lg tracking-wide">镜听空间</span>
           </NavLink>
           <nav className="hidden md:flex items-center gap-1">
             {ROOMS.map(({ to, label, icon: Icon, end }) => (

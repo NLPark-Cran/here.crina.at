@@ -10,11 +10,13 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  Mail,
+  MailCheck,
   PlugZap,
   Unplug,
   UserRound,
 } from 'lucide-react'
-import { authApi, byokApi, importApi, ApiError } from '../api/client'
+import { authApi, byokApi, importApi, settingsApi, ApiError } from '../api/client'
 import type { EmindStatus, User } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { CharacterAvatar } from '../components/CharacterAvatar'
@@ -147,6 +149,7 @@ function SettingsInner() {
         </div>
       </motion.section>
 
+      <EmailCard />
       <ByokCard />
       <GoogleCard />
       <EmindCard />
@@ -195,6 +198,154 @@ function SettingsInner() {
         门不锁，随时回来。
       </p>
     </div>
+  )
+}
+
+/** 邮箱绑定：观猹没绑邮箱的用户也能收信 */
+function EmailCard() {
+  const [me, setMe] = useState<User | null>(null)
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [step, setStep] = useState<'input' | 'code'>('input')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [error, setError] = useState('')
+  const [notifyOn, setNotifyOn] = useState(false)
+
+  useEffect(() => {
+    authApi.me().then((u) => {
+      setMe(u)
+      setNotifyOn(Boolean(u.notify_email))
+    }).catch(() => {})
+  }, [])
+
+  const sendCode = async () => {
+    if (!email.trim() || busy) return
+    setBusy(true)
+    setError('')
+    setMsg('')
+    try {
+      const res = await settingsApi.sendEmailCode(email.trim())
+      setMsg(res.message)
+      setStep('code')
+    } catch (e) {
+      // 429：一分钟一封；400：格式不对
+      setError(e instanceof ApiError ? e.message : '验证码没飞出去，再试一次？')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const verify = async () => {
+    if (!code.trim() || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await settingsApi.verifyEmail(email.trim(), code.trim())
+      setMsg(res.message || '绑定好啦，以后的信都寄到这里')
+      setMe((m) => (m ? { ...m, email: res.email } : m))
+      setStep('input')
+      setCode('')
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '验证没过，再看看？')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleNotify = async () => {
+    const next = !notifyOn
+    setNotifyOn(next)
+    try {
+      await settingsApi.setNotify(next)
+    } catch {
+      setNotifyOn(!next)
+      setError('没改成，再试一次？')
+    }
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.11 }}
+      className="bg-paper rounded-2xl shadow-card border border-warm-line p-5"
+    >
+      <h2 className="font-title text-lg flex items-center gap-2 mb-2">
+        <Mail className="w-5 h-5 text-qiule" />
+        邮箱绑定
+      </h2>
+      {me === null ? (
+        <p className="text-sm text-ink-soft">正在翻名册……</p>
+      ) : me.email ? (
+        <>
+          <p className="text-sm text-ink-soft leading-relaxed">
+            信会寄到 <span className="font-medium text-ink">{me.email}</span>
+          </p>
+          <div className="mt-3">
+            <ToggleRow
+              label="接收邮件问候与提醒"
+              desc="crina 的早安晚安、日程提醒，会轻轻落进你的邮箱"
+              on={notifyOn}
+              onToggle={toggleNotify}
+            />
+          </div>
+          {msg && <p className="mt-3 text-xs text-baixu">{msg}</p>}
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-ink-soft leading-relaxed">
+            绑个邮箱，crina 的早安晚安和日程提醒就能寄到你手上。
+          </p>
+          <div className="mt-3 space-y-2.5">
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="你的邮箱"
+                disabled={step === 'code'}
+                className="flex-1 min-w-0 bg-cream rounded-xl px-4 py-2.5 text-sm outline-none border border-warm-line focus:border-crina/50 disabled:opacity-60"
+              />
+              <button
+                onClick={sendCode}
+                disabled={!email.trim() || busy}
+                className="btn-press shrink-0 px-4 py-2.5 rounded-xl bg-crina text-white text-sm disabled:opacity-40 hover:bg-crina-deep inline-flex items-center gap-1.5"
+              >
+                {busy && step === 'input' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {step === 'code' ? '重寄验证码' : '寄验证码'}
+              </button>
+            </div>
+            {step === 'code' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="flex gap-2 overflow-hidden"
+              >
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="6 位验证码"
+                  inputMode="numeric"
+                  autoFocus
+                  className="flex-1 min-w-0 bg-cream rounded-xl px-4 py-2.5 text-sm tracking-[0.3em] outline-none border border-warm-line focus:border-crina/50"
+                />
+                <button
+                  onClick={verify}
+                  disabled={code.length !== 6 || busy}
+                  className="btn-press shrink-0 px-4 py-2.5 rounded-xl bg-baixu text-white text-sm disabled:opacity-40 inline-flex items-center gap-1.5"
+                >
+                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MailCheck className="w-4 h-4" />}
+                  绑定
+                </button>
+              </motion.div>
+            )}
+            {msg && <p className="text-xs text-baixu">{msg}</p>}
+            {error && <p className="text-xs text-anfeng">{error}</p>}
+          </div>
+        </>
+      )}
+    </motion.section>
   )
 }
 

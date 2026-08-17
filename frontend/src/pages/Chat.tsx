@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { useLocation, useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   Archive,
   ArrowLeft,
+  ChevronDown,
+  Compass,
   Loader2,
-  MessagesSquare,
   Plus,
   SendHorizonal,
   Trash2,
@@ -15,16 +16,23 @@ import { archiveApi, ApiError, chatApi, fetchTtsAudio, spaceApi, streamChatMessa
 import type { Character, ChatMessage, ChatMode, Conversation } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { CharacterAvatar } from '../components/CharacterAvatar'
-import { EmptyState } from '../components/EmptyState'
+import { Toast } from '../components/Toast'
 import { relativeTime } from '../lib/time'
 
 const MODES: { id: ChatMode; label: string; hint: string }[] = [
-  { id: 'auto', label: '自动', hint: '让居民自己判断：该闲聊就闲聊，该认真就认真' },
+  { id: 'auto', label: '自动', hint: '让她自己判断：该闲聊就闲聊，该认真就认真' },
   { id: 'brainstorm', label: '脑暴', hint: '多位居民围成圆桌，一起碰撞想法' },
-  { id: 'guide', label: '梳理', hint: '帮你把乱糟糟的思路捋成一条线' },
-  { id: 'probe', label: '追问', hint: '一步步逼近问题的本质，可能有点扎心' },
-  { id: 'extract', label: '萃取', hint: '聊完把这场探讨的精华沉淀进档案馆' },
-  { id: 'off', label: '禁用', hint: '关掉探讨，就单纯地聊聊天' },
+  { id: 'guide', label: '梳理', hint: '一步步帮你理清模糊的想法' },
+  { id: 'probe', label: '追问', hint: '逼近问题的本质，可能有点扎心' },
+  { id: 'extract', label: '萃取', hint: '凝练成核心信念，收进档案馆' },
+  { id: 'off', label: '禁用', hint: '纯闲聊，不展开探讨' },
+]
+
+const INSPIRATIONS = [
+  '明天有几件事，先想想',
+  '刚想到一个事，记一下',
+  '最近动态有点多，理一下',
+  '有个想法想比较一下优劣',
 ]
 
 /** 流式渲染中的气泡 */
@@ -34,6 +42,34 @@ interface StreamBubble {
   color: string
   avatarUrl: string
   text: string
+}
+
+function chatGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 5) return '夜深了，想聊点什么吗？'
+  if (h < 12) return '早上好呀，想聊点什么吗？'
+  if (h < 18) return '下午好呀，想聊点什么吗？'
+  return '晚上好呀，想聊点什么吗？'
+}
+
+type ConvGroup = { label: string; items: Conversation[] }
+
+function groupConversations(convs: Conversation[]): ConvGroup[] {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfYesterday = startOfToday - 86_400_000
+  const groups: ConvGroup[] = [
+    { label: '今天', items: [] },
+    { label: '昨天', items: [] },
+    { label: '更早', items: [] },
+  ]
+  for (const c of convs) {
+    const t = new Date(c.updated_at).getTime()
+    if (t >= startOfToday) groups[0].items.push(c)
+    else if (t >= startOfYesterday) groups[1].items.push(c)
+    else groups[2].items.push(c)
+  }
+  return groups.filter((g) => g.items.length > 0)
 }
 
 export function ChatPage() {
@@ -47,6 +83,7 @@ export function ChatPage() {
 function ChatInner() {
   const { convId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [characters, setCharacters] = useState<Character[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [active, setActive] = useState<Conversation | null>(null)
@@ -55,11 +92,16 @@ function ChatInner() {
   const [streaming, setStreaming] = useState(false)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
-  const [pickerOpen, setPickerOpen] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [toast, setToast] = useState('')
+  // 新话题（问候输入框）状态
+  const [newChar, setNewChar] = useState('crina')
+  const [newMode, setNewMode] = useState<ChatMode>('auto')
+  const [newDraft, setNewDraft] = useState('')
+  const [creating, setCreating] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const pendingFirstRef = useRef<string | null>(null)
 
   const charMap = useMemo(() => {
     const m = new Map<string, Character>()
@@ -76,6 +118,93 @@ function ChatInner() {
     loadConversations()
   }, [loadConversations])
 
+  // 接住「新话题」带来的第一条消息
+  useEffect(() => {
+    const st = location.state as { firstMessage?: string } | null
+    if (st?.firstMessage) {
+      pendingFirstRef.current = st.firstMessage
+      navigate(location.pathname, { replace: true, state: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state])
+
+  const sendTo = useCallback(
+    async (conv: Conversation, content: string) => {
+      if (!content || streaming) return
+      setError('')
+      const optimistic: ChatMessage = {
+        id: `local-${Date.now()}`,
+        role: 'user',
+        character_id: null,
+        kind: null,
+        content,
+        created_at: new Date().toISOString(),
+      }
+      setMessages((m) => [...m, optimistic])
+      setStreaming(true)
+      setStreamBubbles([])
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+
+      await streamChatMessage(
+        conv.id,
+        content,
+        (ev) => {
+          if (ev.type === 'speaker') {
+            setStreamBubbles((b) => [
+              ...b,
+              { character: ev.character, name: ev.name, color: ev.color, avatarUrl: ev.avatar_url, text: '' },
+            ])
+          } else if (ev.type === 'delta') {
+            setStreamBubbles((b) => {
+              if (b.length === 0) {
+                const c = charMap.get(ev.character)
+                return [
+                  {
+                    character: ev.character,
+                    name: c?.name ?? ev.character,
+                    color: c?.color ?? '#8A8FC4',
+                    avatarUrl: c?.avatar_url ?? '',
+                    text: ev.text,
+                  },
+                ]
+              }
+              const next = [...b]
+              next[next.length - 1] = { ...next[next.length - 1], text: next[next.length - 1].text + ev.text }
+              return next
+            })
+          } else if (ev.type === 'error') {
+            setError(ev.message)
+          }
+        },
+        ctrl.signal,
+      ).catch((e) => {
+        if (e instanceof Error && e.name !== 'AbortError') {
+          setError(e instanceof ApiError ? e.message : '话说到一半断了，再发一次试试？')
+        }
+      })
+
+      // 流结束：把气泡固化进消息列表，并刷新会话列表
+      setStreamBubbles((bubbles) => {
+        const fixed: ChatMessage[] = bubbles
+          .filter((b) => b.text.trim())
+          .map((b, i) => ({
+            id: `stream-${Date.now()}-${i}`,
+            role: 'character' as const,
+            character_id: b.character,
+            kind: null,
+            content: b.text,
+            created_at: new Date().toISOString(),
+          }))
+        setMessages((m) => [...m, ...fixed])
+        return []
+      })
+      setStreaming(false)
+      loadConversations()
+    },
+    [charMap, loadConversations, streaming],
+  )
+
   useEffect(() => {
     if (!convId) {
       setActive(null)
@@ -90,6 +219,11 @@ function ChatInner() {
       .then((d) => {
         setActive(d)
         setMessages(d.messages)
+        if (pendingFirstRef.current) {
+          const first = pendingFirstRef.current
+          pendingFirstRef.current = null
+          void sendTo(d, first)
+        }
       })
       .catch((e) => {
         if (e instanceof ApiError && e.status === 404) navigate('/chat', { replace: true })
@@ -101,111 +235,34 @@ function ChatInner() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamBubbles])
 
-  const startConversation = async (characterId: string) => {
+  const showToast = (text: string) => {
+    setToast(text)
+    setTimeout(() => setToast(''), 6000)
+  }
+
+  /** 问候输入框：开新会话并带上第一句话 */
+  const startNewConversation = async () => {
+    const content = newDraft.trim()
+    if (!content || creating) return
+    setCreating(true)
+    setError('')
     try {
-      const conv = await chatApi.create(characterId, 'auto')
-      setPickerOpen(false)
+      const conv = await chatApi.create(newChar, newMode)
+      setNewDraft('')
       loadConversations()
-      navigate(`/chat/${conv.id}`)
+      navigate(`/chat/${conv.id}`, { state: { firstMessage: content } })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '没能敲开这扇门，再试试？')
+    } finally {
+      setCreating(false)
     }
   }
 
-  const send = async () => {
+  const send = () => {
     const content = draft.trim()
     if (!content || !active || streaming) return
     setDraft('')
-    setError('')
-    const optimistic: ChatMessage = {
-      id: `local-${Date.now()}`,
-      role: 'user',
-      character_id: null,
-      kind: null,
-      content,
-      created_at: new Date().toISOString(),
-    }
-    setMessages((m) => [...m, optimistic])
-    setStreaming(true)
-    setStreamBubbles([])
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-
-    await streamChatMessage(
-      active.id,
-      content,
-      (ev) => {
-        if (ev.type === 'speaker') {
-          setStreamBubbles((b) => [
-            ...b,
-            {
-              character: ev.character,
-              name: ev.name,
-              color: ev.color,
-              avatarUrl: ev.avatar_url,
-              text: '',
-            },
-          ])
-        } else if (ev.type === 'delta') {
-          setStreamBubbles((b) => {
-            if (b.length === 0) {
-              const c = charMap.get(ev.character)
-              return [
-                {
-                  character: ev.character,
-                  name: c?.name ?? ev.character,
-                  color: c?.color ?? '#8A8FC4',
-                  avatarUrl: c?.avatar_url ?? '',
-                  text: ev.text,
-                },
-              ]
-            }
-            const next = [...b]
-            next[next.length - 1] = { ...next[next.length - 1], text: next[next.length - 1].text + ev.text }
-            return next
-          })
-        } else if (ev.type === 'error') {
-          setError(ev.message)
-        }
-      },
-      ctrl.signal,
-    ).catch((e) => {
-      if (e instanceof Error && e.name !== 'AbortError') {
-        setError(e instanceof ApiError ? e.message : '话说到一半断了，再发一次试试？')
-      }
-    })
-
-    // 流结束：把气泡固化进消息列表，并刷新会话标题
-    setStreamBubbles((bubbles) => {
-      const fixed: ChatMessage[] = bubbles
-        .filter((b) => b.text.trim())
-        .map((b, i) => ({
-          id: `stream-${Date.now()}-${i}`,
-          role: 'character' as const,
-          character_id: b.character,
-          kind: null,
-          content: b.text,
-          created_at: new Date().toISOString(),
-        }))
-      setMessages((m) => [...m, ...fixed])
-      return []
-    })
-    setStreaming(false)
-    loadConversations()
-  }
-
-  const extractToArchive = async () => {
-    if (!active || extracting) return
-    setExtracting(true)
-    try {
-      const { title } = await archiveApi.extractWiki(active.id)
-      setToast(`已经收进档案馆啦：《${title}》`)
-      setTimeout(() => setToast(''), 6000)
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : '没收进去，等下再试？')
-    } finally {
-      setExtracting(false)
-    }
+    void sendTo(active, content)
   }
 
   const changeMode = async (mode: ChatMode) => {
@@ -216,6 +273,19 @@ function ChatInner() {
       loadConversations()
     } catch {
       setError('模式没切换成功，再点一下？')
+    }
+  }
+
+  const extractToArchive = async () => {
+    if (!active || extracting) return
+    setExtracting(true)
+    try {
+      const { title } = await archiveApi.extractWiki(active.id)
+      showToast(`已经收进档案馆啦：《${title}》`)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '没收进去，等下再试？')
+    } finally {
+      setExtracting(false)
     }
   }
 
@@ -230,137 +300,106 @@ function ChatInner() {
   }
 
   const activeChar = active ? charMap.get(active.character_id) : undefined
-  const activeMode = MODES.find((m) => m.id === (active?.mode ?? 'auto'))
+  const groups = groupConversations(conversations)
 
   return (
     <div className="md:flex md:gap-5 md:h-[calc(100dvh-8.5rem)]">
-      {/* 收进档案馆 toast */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-paper rounded-2xl shadow-float border border-baixu/30 px-5 py-3.5 text-sm text-center"
-          >
-            {toast}
-            <button
-              onClick={() => navigate('/archive')}
-              className="block mx-auto mt-1 text-xs text-crina-deep hover:underline"
-            >
-              去档案馆看看 →
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      {/* 会话列表（移动端：无会话时显示） */}
+      <Toast text={toast} onClose={() => setToast('')} />
+
+      {/* 左侧栏：新话题 + 分组会话列表 */}
       <aside
-        className={`md:w-72 md:shrink-0 md:flex md:flex-col bg-paper rounded-2xl shadow-card border border-warm-line overflow-hidden ${
+        className={`md:w-80 md:shrink-0 md:flex md:flex-col bg-paper rounded-2xl shadow-card border border-warm-line overflow-hidden ${
           convId ? 'hidden md:flex' : 'flex flex-col'
-        } h-[calc(100dvh-11rem)] md:h-auto`}
+        } md:h-auto`}
       >
-        <div className="p-4 border-b border-warm-line flex items-center justify-between">
-          <h2 className="font-title text-lg">私聊间</h2>
+        <div className="p-3.5 border-b border-warm-line">
           <button
-            onClick={() => setPickerOpen((v) => !v)}
-            className="btn-press p-2 rounded-full bg-crina text-white hover:bg-crina-deep"
-            aria-label="开始新会话"
+            onClick={() => navigate('/chat')}
+            className="btn-press w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-crina text-white shadow-sm hover:bg-crina-deep"
           >
             <Plus className="w-4 h-4" />
+            新话题
           </button>
         </div>
-
-        <AnimatePresence>
-          {pickerOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-b border-warm-line"
-            >
-              <div className="p-3 grid grid-cols-4 gap-2">
-                {characters.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => startConversation(c.id)}
-                    className="btn-press flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-cream"
-                  >
-                    <CharacterAvatar name={c.name} color={c.color} avatarUrl={c.avatar_url || null} size={36} />
-                    <span className="text-xs text-ink-soft">{c.name}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="px-3 pb-3 text-xs text-ink-soft/80 text-center">点一位居民，去 ta 的小桌边坐下</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto md:max-h-none max-h-64">
           {conversations.length === 0 && (
-            <EmptyState
-              icon={MessagesSquare}
-              title="还没有私聊过"
-              hint="点右上角的 +，挑一位居民开始第一场悄悄话。"
-            />
+            <p className="px-5 py-8 text-center text-sm text-ink-soft leading-relaxed">
+              还没有聊过天。
+              <br />
+              在上面写下第一句话，就算开张啦。
+            </p>
           )}
-          {conversations.map((c) => {
-            const ch = charMap.get(c.character_id)
-            return (
-              <div
-                key={c.id}
-                className={`group flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-warm-line/60 transition-colors ${
-                  c.id === convId ? 'bg-crina/10' : 'hover:bg-cream'
-                }`}
-                onClick={() => navigate(`/chat/${c.id}`)}
-              >
-                <CharacterAvatar
-                  name={ch?.name ?? c.character_id}
-                  color={ch?.color}
-                  avatarUrl={ch?.avatar_url || null}
-                  size={38}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">
-                    {c.title || `${ch?.name ?? c.character_id} 的小桌`}
+          {groups.map((g) => (
+            <div key={g.label}>
+              <div className="px-4 pt-3 pb-1 text-[11px] text-ink-soft/70 tracking-wide">{g.label}</div>
+              {g.items.map((c) => {
+                const ch = charMap.get(c.character_id)
+                return (
+                  <div
+                    key={c.id}
+                    className={`group flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                      c.id === convId ? 'bg-crina/10' : 'hover:bg-cream'
+                    }`}
+                    onClick={() => navigate(`/chat/${c.id}`)}
+                  >
+                    <CharacterAvatar
+                      name={ch?.name ?? c.character_id}
+                      color={ch?.color}
+                      avatarUrl={ch?.avatar_url || null}
+                      size={34}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">
+                        {c.title || `${ch?.name ?? c.character_id} 的小桌`}
+                      </div>
+                      <div className="text-xs text-ink-soft truncate">
+                        {c.last_message ??
+                          `${MODES.find((m) => m.id === c.mode)?.label ?? c.mode} · ${relativeTime(c.updated_at)}`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void removeConversation(c.id)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all shrink-0"
+                      aria-label="删除会话"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <div className="text-xs text-ink-soft">
-                    {MODES.find((m) => m.id === c.mode)?.label ?? c.mode} · {relativeTime(c.updated_at)}
-                  </div>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void removeConversation(c.id)
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all"
-                  aria-label="删除会话"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          ))}
+          <div className="h-2" />
         </div>
       </aside>
 
-      {/* 聊天窗（移动端：有会话时显示） */}
+      {/* 主区域 */}
       <section
         className={`flex-1 md:flex md:flex-col bg-paper rounded-2xl shadow-card border border-warm-line overflow-hidden mt-4 md:mt-0 ${
           convId ? 'flex flex-col' : 'hidden md:flex'
         } h-[calc(100dvh-11rem)] md:h-auto`}
       >
         {!active ? (
-          <div className="flex-1 flex items-center justify-center">
-            <EmptyState
-              icon={MessagesSquare}
-              title="挑一场对话坐下"
-              hint="左边选一场继续聊，或者点 + 开始新的悄悄话。"
-            />
-          </div>
+          <GreetingView
+            characters={characters}
+            charMap={charMap}
+            newChar={newChar}
+            setNewChar={setNewChar}
+            newMode={newMode}
+            setNewMode={setNewMode}
+            draft={newDraft}
+            setDraft={setNewDraft}
+            creating={creating}
+            error={convId ? '' : error}
+            onSend={startNewConversation}
+          />
         ) : (
           <>
-            {/* 聊天头：居民 + 模式选择器 */}
-            <div className="p-3 border-b border-warm-line space-y-2.5">
+            {/* 聊天头：居民 + 探讨下拉 + 收进档案馆 */}
+            <div className="p-3 border-b border-warm-line">
               <div className="flex items-center gap-2.5">
                 <button
                   onClick={() => navigate('/chat')}
@@ -379,34 +418,16 @@ function ChatInner() {
                   <div className="font-medium text-sm truncate">
                     {active.title || `和 ${activeChar?.name ?? active.character_id} 的悄悄话`}
                   </div>
-                  {activeMode && (
-                    <div className="text-xs text-ink-soft truncate">{activeMode.hint}</div>
-                  )}
                 </div>
-              </div>
-              <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
-                {MODES.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => changeMode(m.id)}
-                    title={m.hint}
-                    className={`btn-press shrink-0 px-3 py-1 rounded-full text-xs transition-colors ${
-                      (active.mode ?? 'auto') === m.id
-                        ? 'bg-crina text-white shadow-sm'
-                        : 'bg-cream text-ink-soft hover:bg-crina/15'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
+                <ModeDropdown value={active.mode ?? 'auto'} onChange={changeMode} />
                 <button
                   onClick={extractToArchive}
                   disabled={extracting || messages.length === 0}
                   title="把这场探讨的精华萃取成一页，收进档案馆"
-                  className="btn-press shrink-0 ml-auto inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-baixu/12 text-baixu hover:bg-baixu/20 disabled:opacity-40"
+                  className="btn-press shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs bg-baixu/12 text-baixu hover:bg-baixu/20 disabled:opacity-40"
                 >
                   {extracting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
-                  {extracting ? '萃取中…' : '收进档案馆'}
+                  <span className="hidden sm:inline">{extracting ? '萃取中…' : '收进档案馆'}</span>
                 </button>
               </div>
             </div>
@@ -414,9 +435,7 @@ function ChatInner() {
             {/* 消息流 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.length === 0 && streamBubbles.length === 0 && (
-                <p className="text-center text-sm text-ink-soft py-10">
-                  桌上还空着，说第一句话吧。
-                </p>
+                <p className="text-center text-sm text-ink-soft py-10">桌上还空着，说第一句话吧。</p>
               )}
               {messages.map((m) =>
                 m.role === 'user' ? (
@@ -458,35 +477,227 @@ function ChatInner() {
               <div ref={bottomRef} />
             </div>
 
-            {/* 输入框 */}
-            <div className="p-3 border-t border-warm-line flex items-end gap-2">
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
-                    void send()
-                  }
-                }}
-                placeholder={streaming ? '居民还在说话，等一等…' : '说点什么吧…（Enter 发送）'}
-                rows={1}
-                maxLength={4000}
-                disabled={streaming}
-                className="flex-1 resize-none bg-cream rounded-2xl px-4 py-2.5 text-[15px] outline-none border border-warm-line focus:border-crina/50 disabled:opacity-60 max-h-32"
-              />
-              <button
-                onClick={() => void send()}
-                disabled={!draft.trim() || streaming}
-                className="btn-press p-3 rounded-full bg-crina text-white disabled:opacity-40 hover:bg-crina-deep shrink-0"
-                aria-label="发送"
-              >
-                <SendHorizonal className="w-4 h-4" />
-              </button>
+            {/* 输入框 + 免责声明 */}
+            <div className="p-3 border-t border-warm-line">
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      send()
+                    }
+                  }}
+                  placeholder={streaming ? '居民还在说话，等一等…' : '说点什么吧…（Enter 发送）'}
+                  rows={1}
+                  maxLength={4000}
+                  disabled={streaming}
+                  className="flex-1 resize-none bg-cream rounded-2xl px-4 py-2.5 text-[15px] outline-none border border-warm-line focus:border-crina/50 disabled:opacity-60 max-h-32"
+                />
+                <button
+                  onClick={send}
+                  disabled={!draft.trim() || streaming}
+                  className="btn-press p-3 rounded-full bg-crina text-white disabled:opacity-40 hover:bg-crina-deep shrink-0"
+                  aria-label="发送"
+                >
+                  <SendHorizonal className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="mt-2 text-center text-[11px] text-ink-soft/60">内容由 AI 生成，请注意甄别</p>
             </div>
           </>
         )}
       </section>
+
+      {/* 移动端：未选中会话时，问候视图在列表下方单独成区 */}
+      {!convId && (
+        <div className="md:hidden mt-4 bg-paper rounded-2xl shadow-card border border-warm-line overflow-hidden">
+          <GreetingView
+            characters={characters}
+            charMap={charMap}
+            newChar={newChar}
+            setNewChar={setNewChar}
+            newMode={newMode}
+            setNewMode={setNewMode}
+            draft={newDraft}
+            setDraft={setNewDraft}
+            creating={creating}
+            error={error}
+            onSend={startNewConversation}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 未选中会话时的主区域：问候 + 大输入框 + 灵感 chips */
+function GreetingView({
+  characters,
+  newChar,
+  setNewChar,
+  newMode,
+  setNewMode,
+  draft,
+  setDraft,
+  creating,
+  error,
+  onSend,
+}: {
+  characters: Character[]
+  charMap: Map<string, Character>
+  newChar: string
+  setNewChar: (id: string) => void
+  newMode: ChatMode
+  setNewMode: (m: ChatMode) => void
+  draft: string
+  setDraft: (s: string) => void
+  creating: boolean
+  error: string
+  onSend: () => void
+}) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center px-5 py-10 md:py-8">
+      <motion.h2
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="font-title text-2xl md:text-3xl text-center"
+      >
+        {chatGreeting()}
+      </motion.h2>
+
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.08 }}
+        className="mt-6 w-full max-w-xl bg-cream rounded-3xl border border-warm-line focus-within:border-crina/50 shadow-sm p-3.5"
+      >
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              onSend()
+            }
+          }}
+          placeholder="写下第一句话，新话题就开始了…"
+          rows={3}
+          maxLength={4000}
+          className="w-full resize-none bg-transparent outline-none text-[15px] leading-relaxed placeholder:text-ink-soft/60"
+        />
+        <div className="flex items-center gap-2 pt-2 border-t border-warm-line/70">
+          {/* 选居民 */}
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {characters.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setNewChar(c.id)}
+                title={c.name}
+                className={`btn-press rounded-full transition-all shrink-0 ${
+                  newChar === c.id ? 'ring-2 ring-crina ring-offset-1 ring-offset-cream' : 'opacity-60 hover:opacity-100'
+                }`}
+              >
+                <CharacterAvatar name={c.name} color={c.color} avatarUrl={c.avatar_url || null} size={26} />
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <ModeDropdown value={newMode} onChange={setNewMode} up />
+            <button
+              onClick={onSend}
+              disabled={!draft.trim() || creating}
+              className="btn-press p-2.5 rounded-full bg-crina text-white disabled:opacity-40 hover:bg-crina-deep"
+              aria-label="开始新话题"
+            >
+              {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizonal className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* 灵感 chips */}
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.16 }}
+        className="mt-4 flex flex-wrap justify-center gap-2 max-w-xl"
+      >
+        {INSPIRATIONS.map((s) => (
+          <button
+            key={s}
+            onClick={() => setDraft(s)}
+            className="btn-press inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-paper border border-warm-line text-xs text-ink-soft hover:border-crina/40 hover:text-ink shadow-sm"
+          >
+            <Compass className="w-3 h-3 text-crina" />
+            {s}
+          </button>
+        ))}
+      </motion.div>
+
+      {error && <p className="mt-3 text-sm text-anfeng">{error}</p>}
+      <p className="mt-6 text-[11px] text-ink-soft/60">内容由 AI 生成，请注意甄别</p>
+    </div>
+  )
+}
+
+/** 「探讨 ▾」下拉：带说明的探讨模式菜单 */
+function ModeDropdown({
+  value,
+  onChange,
+  up = false,
+}: {
+  value: ChatMode
+  onChange: (m: ChatMode) => void
+  up?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const current = MODES.find((m) => m.id === value) ?? MODES[0]
+  return (
+    <div className="relative shrink-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="btn-press inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs bg-crina/12 text-crina-deep hover:bg-crina/20"
+      >
+        探讨 · {current.label}
+        <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, y: up ? 6 : -6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: up ? 6 : -6, scale: 0.97 }}
+              transition={{ duration: 0.15 }}
+              className={`absolute right-0 z-50 w-64 bg-paper rounded-2xl shadow-float border border-warm-line p-1.5 ${
+                up ? 'bottom-full mb-2' : 'top-full mt-2'
+              }`}
+            >
+              {MODES.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    onChange(m.id)
+                    setOpen(false)
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${
+                    m.id === value ? 'bg-crina/10' : 'hover:bg-cream'
+                  }`}
+                >
+                  <span className={`text-sm ${m.id === value ? 'text-crina-deep font-medium' : ''}`}>
+                    {m.label}
+                  </span>
+                  <span className="block text-xs text-ink-soft mt-0.5">{m.hint}</span>
+                </button>
+              ))}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

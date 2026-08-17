@@ -17,7 +17,9 @@ import type {
   PresenceMap,
   SpaceEvent,
   TaskStreamEvent,
+  TaskTarget,
   User,
+  WardrobeData,
   WikiPage,
 } from './types'
 
@@ -70,6 +72,11 @@ export const spaceApi = {
   characters: () => get<{ characters: Character[] }>('/api/space/characters'),
   presence: () => get<PresenceMap>('/api/space/presence'),
   garbage: () => post<GarbageItem>('/api/space/garbage'),
+  wardrobe: () => get<WardrobeData>('/api/space/wardrobe'),
+  fundWardrobe: (amount: number) =>
+    post<{ ok: boolean; balance: number; message: string }>('/api/space/wardrobe/fund', { amount }),
+  wishWardrobe: (kind: 'outfit' | 'decor', hint: string) =>
+    post<{ ok: boolean; message: string }>('/api/space/wardrobe/wish', { kind, hint }),
 }
 
 // ---------- 客厅 ----------
@@ -184,8 +191,8 @@ export const lettersApi = {
 // ---------- 委托板 ----------
 export const agentApi = {
   list: () => get<{ tasks: AgentTask[] }>('/api/agent/tasks'),
-  create: (title: string, prompt: string) =>
-    post<AgentTask>('/api/agent/tasks', { title, prompt }),
+  create: (title: string, prompt: string, target: TaskTarget = 'sandbox') =>
+    post<AgentTask>('/api/agent/tasks', { title, prompt, target }),
   detail: (id: string) => get<AgentTask>(`/api/agent/tasks/${id}`),
   cancel: (id: string) => post<{ ok: boolean }>(`/api/agent/tasks/${id}/cancel`),
 }
@@ -213,6 +220,16 @@ export const byokApi = {
 export const importApi = {
   emindStatus: () => get<EmindStatus>('/api/import/emind/status'),
   emindImport: () => post<EmindImportResult>('/api/import/emind'),
+}
+
+// ---------- 设置扩展（邮箱绑定 / 通知偏好） ----------
+export const settingsApi = {
+  sendEmailCode: (email: string) =>
+    post<{ ok: boolean; message: string }>('/api/settings/email/send-code', { email }),
+  verifyEmail: (email: string, code: string) =>
+    post<{ ok: boolean; email: string; message: string }>('/api/settings/email/verify', { email, code }),
+  setNotify: (notify_email: boolean) =>
+    post<{ ok: boolean; notify_email: boolean }>('/api/settings/notify', { notify_email }),
 }
 
 // ---------- 档案馆 ----------
