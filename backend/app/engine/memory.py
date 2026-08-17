@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,50 +89,96 @@ async def build_context(db: AsyncSession, user: User, character: Character,
     return messages
 
 
-EXTRACT_PROMPT = """从这段对话中，提取值得长期记住的关于用户的信息。
-只提取：稳定的事实（fact）、明确的偏好（preference）。不要提取一次性的闲聊。
-如果没有值得记住的，输出空数组。
+EXTRACT_PROMPT = """你是记忆管理员。根据新对话，维护关于用户的长期记忆库。
 
-以 JSON 数组输出，每项：{"kind": "fact|preference", "content": "一句话", "salience": 1-10}
-对话：
+## 什么值得记
+- fact：关于用户的稳定客观事实（身份、经历、拥有物、常住地、身体状况等）
+- preference：用户明确表达的偏好（喜欢/讨厌/习惯）
+
+## 绝不记（重点！）
+- 角色扮演、编故事、玩游戏时产生的虚构内容（那不是用户的真实信息）
+- 对话过程的描述（如"用户纠正了某角色""用户问了某个问题"）
+- 过度推测的心理画像（如"用户有强烈的向往""用户很孤独"）——只记用户明确说出来的
+- 一次性闲聊、客套、当前情绪
+- 与已有记忆重复的
+
+## 操作
+对比已有记忆，输出操作列表：
+- {"op": "add", "kind": "fact|preference", "content": "一句话", "salience": 1-10, "evidence": "用户原话"}
+- {"op": "update", "id": "已有记忆id", "content": "更准确的表述"}  （已有记忆不准/过时/需补充时）
+- {"op": "delete", "id": "已有记忆id"}  （已有记忆是臆想、虚构或错误时，果断删）
+没有任何值得做的就输出空数组 []。宁缺毋滥。
+
+## 已有记忆
+__EXISTING__
+
+## 新对话
 __DIALOGUE__"""
 
 
 async def extract_memories(db: AsyncSession, user: User, character_id: str,
                            new_exchange: list[dict], api_key: str | None = None):
-    """后台记忆抽取"""
-    dialogue = "\n".join(f"{'用户' if m['role'] == 'user' else '角色'}: {m['content'][:300]}"
-                         for m in new_exchange[-6:])
+    """后台记忆维护：mem0 式 add/update/delete 操作（带原文证据，宁缺毋滥）"""
     import logging
     log = logging.getLogger("crina.memory")
+
+    existing = (await db.execute(
+        select(Memory).where(Memory.user_id == user.id)
+        .order_by(desc(Memory.salience)).limit(40)
+    )).scalars().all()
+    existing_block = "\n".join(f'- id={m.id} [{m.kind}] {m.content}' for m in existing) or "（空）"
+    dialogue = "\n".join(f"{'用户' if m['role'] == 'user' else '角色'}: {m['content'][:300]}"
+                         for m in new_exchange[-6:])
+    prompt = EXTRACT_PROMPT.replace("__EXISTING__", existing_block).replace("__DIALOGUE__", dialogue)
+
     try:
-        raw = await tokendance.chat_once([{"role": "user", "content": EXTRACT_PROMPT.replace("__DIALOGUE__", dialogue)}],
-                              api_key=api_key, temperature=0.3, max_tokens=400)
+        raw = await tokendance.chat_once([{"role": "user", "content": prompt}],
+                                         api_key=api_key, temperature=0.3, max_tokens=600)
         raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        items = json.loads(raw)
-        if not isinstance(items, list):
+        ops = json.loads(raw)
+        if not isinstance(ops, list):
             return
     except Exception:
         log.exception("记忆抽取失败")
         return
-    for item in items[:3]:
+
+    by_id = {str(m.id): m for m in existing}
+    applied = 0
+    for item in ops[:5]:
         try:
-            content = str(item["content"]).strip()
-            kind = item["kind"] if item["kind"] in ("fact", "preference") else "fact"
-            salience = min(10, max(1, int(item.get("salience", 5))))
+            op = item.get("op")
+            if op == "add":
+                content = str(item["content"]).strip()
+                if len(content) < 4:
+                    continue
+                kind = item["kind"] if item.get("kind") in ("fact", "preference") else "fact"
+                salience = min(10, max(1, int(item.get("salience", 5))))
+                evidence = str(item.get("evidence", ""))[:300]
+                dup = (await db.execute(
+                    select(Memory).where(Memory.user_id == user.id, Memory.content == content)
+                )).scalar_one_or_none()
+                if dup:
+                    continue
+                db.add(Memory(user_id=user.id, character_id=character_id, kind=kind,
+                              content=content, salience=salience, evidence=evidence))
+                applied += 1
+            elif op == "update":
+                mem = by_id.get(str(item.get("id")))
+                if mem:
+                    new_content = str(item["content"]).strip()
+                    if len(new_content) >= 4:
+                        mem.content = new_content
+                        applied += 1
+            elif op == "delete":
+                mem = by_id.get(str(item.get("id")))
+                if mem:
+                    await db.delete(mem)
+                    applied += 1
         except Exception:
             continue
-        if not content or len(content) < 4:
-            continue
-        # 简单去重
-        dup = (await db.execute(
-            select(Memory).where(Memory.user_id == user.id, Memory.content == content)
-        )).scalar_one_or_none()
-        if dup:
-            continue
-        db.add(Memory(user_id=user.id, character_id=character_id, kind=kind,
-                      content=content, salience=salience))
-    await db.commit()
+    if applied:
+        await db.commit()
+        log.info("记忆维护完成 user=%s ops=%d", user.id, applied)
 
 
 SUMMARY_PROMPT = """把这段对话的进展合并进已有的对话摘要。保留关键事实与情绪线索，控制在 150 字以内。

@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from ..config import get_settings
 from ..db import get_db
@@ -124,7 +124,7 @@ async def emind_import(user: User = Depends(get_current_user), db: AsyncSession 
     except Exception:
         await db.rollback()
         log.exception("emind 导入失败")
-        raise HTTPException(500, "搬家车半路熄火了，稍后再试一次吧")
+        raise HTTPException(500, "搬家车半路熄火了，稍后再试一次吧") from None
     finally:
         await engine.dispose()
     return {"ok": True, "imported": imported,

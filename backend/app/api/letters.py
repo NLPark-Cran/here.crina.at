@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid as _uuid
-from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -13,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..bg import fire_and_forget
 from ..db import SessionLocal, get_db
 from ..engine import tokendance
-from ..models import Character, Conversation, Event, Letter, Memory, Message, User, WikiPage
-from ..security import decode_session_token, get_current_user
+from ..models import Character, Letter, User
+from ..security import get_current_user
 from ..soul.characters import WORLD
 
 router = APIRouter(tags=["mailbox", "calendar", "memory", "wiki"])
@@ -29,12 +28,12 @@ async def list_letters(user: User = Depends(get_current_user), db: AsyncSession 
     rows_c = (await db.execute(select(Character.id, Character.name, Character.color))).all()
     chars = {cid: {"name": name, "color": color} for cid, name, color in rows_c}
     return {"letters": [
-        {"id": str(l.id), "character": {"id": l.character_id, "name": chars[l.character_id]["name"] if l.character_id in chars else l.character_id,
-                                        "color": chars[l.character_id]["color"] if l.character_id in chars else "#999"},
-         "kind": l.kind, "title": l.title, "content": l.content, "read": l.read,
-         "created_at": l.created_at.isoformat()}
-        for l in rows
-    ], "unread": sum(1 for l in rows if not l.read)}
+        {"id": str(letter.id), "character": {"id": letter.character_id, "name": chars[letter.character_id]["name"] if letter.character_id in chars else letter.character_id,
+                                        "color": chars[letter.character_id]["color"] if letter.character_id in chars else "#999"},
+         "kind": letter.kind, "title": letter.title, "content": letter.content, "read": letter.read,
+         "created_at": letter.created_at.isoformat()}
+        for letter in rows
+    ], "unread": sum(1 for letter in rows if not letter.read)}
 
 
 @router.post("/letters/{letter_id}/read")

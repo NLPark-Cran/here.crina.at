@@ -1,8 +1,9 @@
 """邮件外发（SMTP，可选配置）"""
 from __future__ import annotations
 
-import aiosmtplib
 from email.message import EmailMessage
+
+import aiosmtplib
 
 from ..config import get_settings
 
@@ -17,7 +18,9 @@ async def send_mail(to: str, subject: str, text: str) -> bool:
     if not configured() or not to:
         return False
     msg = EmailMessage()
-    msg["From"] = settings.smtp_from or settings.smtp_user
+    from email.utils import formataddr
+    addr = settings.smtp_from or settings.smtp_user
+    msg["From"] = formataddr(("crina", addr))  # 收件箱里显示「crina」而非裸地址
     msg["To"] = to
     msg["Subject"] = subject
     msg.set_content(text)

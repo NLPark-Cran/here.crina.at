@@ -5,7 +5,7 @@ import base64
 import hashlib
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from cryptography.fernet import Fernet
@@ -24,7 +24,7 @@ COOKIE_NAME = "crina_session"
 
 # ---------- JWT ----------
 def create_session_token(user_id: uuid.UUID) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "iat": now,
@@ -80,7 +80,7 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     seen_key = f"seen:{user.id}"
     if not await r.get(seen_key):
         await r.setex(seen_key, 600, "1")
-        user.last_seen_at = datetime.now(timezone.utc)
+        user.last_seen_at = datetime.now(UTC)
         await db.commit()
     return user
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -104,7 +104,7 @@ async def job_autopost(hour: int):
 
 async def job_greet(period: str):
     """早安/晚安问候信（7 天内活跃的用户）"""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff = datetime.now(UTC) - timedelta(days=7)
     async with SessionLocal() as db:
         users = (await db.execute(select(User).where(User.last_seen_at >= cutoff))).scalars().all()
         if not users:
@@ -121,6 +121,20 @@ async def job_greet(period: str):
             )).scalar_one_or_none()
             if dup:
                 continue
+            # 晚安信末尾：自然汇报「今天一起新记下的事」
+            memory_note = ""
+            if period == "night":
+                from ..models import Memory
+                new_mems = (await db.execute(
+                    select(Memory).where(Memory.user_id == user.id,
+                                         Memory.created_at >= today_start).limit(5)
+                )).scalars().all()
+                if new_mems:
+                    listing = "；".join(m.content for m in new_mems[:3])
+                    memory_note = (f"今天我们一起新记住了 {len(new_mems)} 件关于你的事（比如：{listing}），"
+                                   f"会在信的最后自然地提一两句，并提醒写错了可以去档案馆撕掉。")
+            else:
+                memory_note = ""
             prompt = f"""{WORLD}
 
 {char.soul_public}
@@ -129,7 +143,8 @@ async def job_greet(period: str):
 # 情境
 现在是{'早上，新的一天刚开始' if period == 'morning' else '深夜，一天要结束了'}{'，今天是' + holiday if holiday else ''}。
 给 {user.nickname}（关系：{user.relation_tier}）写一封短短的{'早安' if period == 'morning' else '晚安'}问候，放进TA的信箱。
-要求：有称呼有落款，3-5 句话，像真的在乎TA的人写的。{'可以提一句今天是' + holiday + '。' if holiday else ''}不要写"希望这封邮件找到你"这种客套。"""
+要求：有称呼有落款，3-5 句话，像真的在乎TA的人写的。{'可以提一句今天是' + holiday + '。' if holiday else ''}不要写"希望这封邮件找到你"这种客套。
+{memory_note}"""
             try:
                 content = await tokendance.chat_once([{"role": "user", "content": prompt}],
                                                      temperature=0.9, max_tokens=300)
@@ -150,7 +165,7 @@ async def job_greet(period: str):
 
 async def job_remind():
     """事件提醒：到点未提醒的 → 站内信 + 邮件"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     horizon = now + timedelta(days=2)  # 只看两天内的，避免全表扫
     async with SessionLocal() as db:
         events = (await db.execute(
@@ -159,7 +174,7 @@ async def job_remind():
         for ev in events:
             start = ev.start_at
             if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
+                start = start.replace(tzinfo=UTC)
             remind_at = start - timedelta(minutes=ev.remind_minutes)
             if remind_at <= now <= start + timedelta(hours=1):
                 user = await db.get(User, ev.user_id)

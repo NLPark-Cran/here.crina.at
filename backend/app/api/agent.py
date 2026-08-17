@@ -40,7 +40,7 @@ async def create_task(body: CreateTask, user: User = Depends(get_current_user),
     try:
         await chat_engine.check_and_count_quota(db, user, "agent", is_byok)
     except chat_engine.QuotaExceeded:
-        raise HTTPException(429, "今日委托次数用完啦，接入词元蓄电池可不限量（设置 → 词元蓄电池）")
+        raise HTTPException(429, "今日委托次数用完啦，接入词元蓄电池可不限量（设置 → 词元蓄电池）") from None
     if body.target == "renovate" and not user.is_owner:
         raise HTTPException(403, "空间装修是小屋主人的专属权柄哦")
     if body.target not in ("sandbox", "renovate"):
@@ -101,7 +101,7 @@ async def stream(task_id: str, user: User = Depends(get_current_user),
                 while True:
                     try:
                         event = await asyncio.wait_for(q.get(), timeout=30)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         yield 'data: {"type":"ping"}\n\n'
                         continue
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"

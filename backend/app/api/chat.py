@@ -145,7 +145,7 @@ async def tts(body: TTSRequest, user: User = Depends(get_current_user), db: Asyn
     try:
         await engine.check_and_count_quota(db, user, "tts", is_byok)
     except engine.QuotaExceeded:
-        raise HTTPException(429, "今日语音额度用完啦")
+        raise HTTPException(429, "今日语音额度用完啦") from None
     audio = await tokendance.tts(body.text, voice_id=voice, api_key=api_key)
     await r.setex(cache_key, 86400 * 7, base64.b64encode(audio).decode())
     return Response(content=audio, media_type="audio/mpeg")

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid as _uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -74,7 +74,6 @@ async def delete_event(event_id: str, user: User = Depends(get_current_user), db
 async def ics_url(user: User = Depends(get_current_user)):
     """返回当前用户的日历订阅链接"""
     from ..config import get_settings
-    from ..security import create_session_token
     token = create_session_token(user.id)
     return {"url": f"{get_settings().site_url}/api/events.ics?token={token}"}
 
@@ -83,7 +82,8 @@ async def ics_url(user: User = Depends(get_current_user)):
 async def export_ics(token: str, db: AsyncSession = Depends(get_db)):
     """日历订阅导出（挂进手机日历）：?token=<JWT>"""
     from fastapi.responses import Response
-    from icalendar import Calendar, Event as ICalEvent
+    from icalendar import Calendar
+    from icalendar import Event as ICalEvent
     uid = decode_session_token(token)
     if not uid:
         raise HTTPException(401, "token 无效")
@@ -100,7 +100,7 @@ async def export_ics(token: str, db: AsyncSession = Depends(get_db)):
         ie.add("dtstart", e.start_at)
         if e.end_at:
             ie.add("dtend", e.end_at)
-        ie.add("dtstamp", datetime.now(timezone.utc))
+        ie.add("dtstamp", datetime.now(UTC))
         cal.add_component(ie)
     return Response(content=cal.to_ical(), media_type="text/calendar",
                     headers={"Content-Disposition": "attachment; filename=crina.ics"})

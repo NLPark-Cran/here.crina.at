@@ -5,7 +5,7 @@ import uuid as _uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
@@ -42,7 +42,6 @@ async def delete_memory(memory_id: str, user: User = Depends(get_current_user), 
 @router.get("/wiki")
 async def list_wiki(request: Request, db: AsyncSession = Depends(get_db)):
     """未登录只看公开页；登录后可看自己的私密沉淀"""
-    from ..security import get_current_user_optional
     user = await get_current_user_optional(request, db)
     if user:
         from sqlalchemy import or_
@@ -87,7 +86,7 @@ async def extract_wiki(body: ExtractWiki, user: User = Depends(get_current_user)
     except Exception:
         import logging
         logging.getLogger("crina.wiki").exception("萃取失败")
-        raise HTTPException(503, "萃取没能完成，让 crina 歇口气再试一次吧")
+        raise HTTPException(503, "萃取没能完成，让 crina 歇口气再试一次吧") from None
     title = body.title or (content.split("\n")[0].lstrip("# ").strip()[:60] if content else "未命名沉淀")
     page = WikiPage(user_id=user.id, title=title, content=content, mode=conv.mode,
                     source_conversation_id=conv.id, public=body.public)

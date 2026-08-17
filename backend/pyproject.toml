@@ -1,0 +1,19 @@
+[project]
+name = "crina-space-backend"
+version = "0.3.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = [
+    "E501",   # 行长由编辑器管
+    "B008",   # FastAPI Depends 惯例
+    "RUF001", "RUF002", "RUF003",  # 中文标点
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

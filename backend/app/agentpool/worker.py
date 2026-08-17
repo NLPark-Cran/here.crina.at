@@ -111,7 +111,6 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
             "capabilities": {"supports_question": False},
         }, "1")
 
-        prompt_sent = False
         deadline = asyncio.get_event_loop().time() + TASK_TIMEOUT_S
         tool_names: dict[str, str] = {}
 
@@ -122,7 +121,7 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
                 break
             try:
                 raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield {"type": "error", "message": "委托超时了，crina 先收工"}
                 break
             if not raw:
@@ -135,7 +134,6 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
 
             if msg.get("id") == "1" and "result" in msg:
                 await send("prompt", {"user_input": prompt}, "2")
-                prompt_sent = True
                 yield {"type": "started"}
                 continue
             if msg.get("id") == "2" and "result" in msg:

@@ -76,7 +76,7 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    messages: Mapped[list["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
+    messages: Mapped[list[Message]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
 
 
 class Message(Base):
@@ -104,6 +104,7 @@ class Memory(Base):
     kind: Mapped[str] = mapped_column(String(16))  # fact / preference / summary
     content: Mapped[str] = mapped_column(Text)
     salience: Mapped[int] = mapped_column(Integer, default=5)  # 1-10 重要性
+    evidence: Mapped[str] = mapped_column(Text, default="")  # 原文证据
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -118,7 +119,7 @@ class Post(Base):
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
-    replies: Mapped[list["PostReply"]] = relationship(back_populates="post", cascade="all, delete-orphan")
+    replies: Mapped[list[PostReply]] = relationship(back_populates="post", cascade="all, delete-orphan")
 
 
 class PostReply(Base):

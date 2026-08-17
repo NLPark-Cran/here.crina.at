@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -105,10 +105,10 @@ async def execute_task(task_id: str):
         status = "done"
         _live[task_id] = {"queues": _live.get(task_id, {}).get("queues", set()), "done": False}
         try:
-            with open(log_file, "a", encoding="utf-8") as fp:
+            import aiofiles
+            async with aiofiles.open(log_file, "a", encoding="utf-8") as fp:
                 async for event in run_task(task_id, user_id, prompt, api_key, target):
-                    fp.write(json.dumps(event, ensure_ascii=False) + "\n")
-                    fp.flush()
+                    await fp.write(json.dumps(event, ensure_ascii=False) + "\n")
                     if event["type"] == "text":
                         transcript.append(event["text"])
                     if event["type"] == "error":
@@ -129,7 +129,8 @@ async def execute_task(task_id: str):
                 state = _live.get(task_id)
                 if state and not state["queues"]:
                     _live.pop(task_id, None)
-            asyncio.create_task(_gc())
+            from ..bg import fire_and_forget
+            fire_and_forget(_gc())
 
         # 装修任务完成后自动构建上线
         if target == "renovate" and status == "done":
@@ -153,7 +154,7 @@ async def execute_task(task_id: str):
             if task:
                 task.status = status
                 task.result_summary = summary
-                task.finished_at = datetime.now(timezone.utc)
+                task.finished_at = datetime.now(UTC)
                 await db.commit()
         log.info("委托完成 task=%s status=%s", task_id, status)
 
@@ -165,7 +166,7 @@ async def cancel_task(task_id: str) -> bool:
         task = await db.get(AgentTask, uuid.UUID(task_id))
         if task and task.status in ("queued",):
             task.status = "cancelled"
-            task.finished_at = datetime.now(timezone.utc)
+            task.finished_at = datetime.now(UTC)
             await db.commit()
             return True
     return False

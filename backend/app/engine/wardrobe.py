@@ -1,6 +1,7 @@
 """小金库与衣橱：crina 会拿经费给自己购置装扮和摆件"""
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import uuid
@@ -36,6 +37,14 @@ async def fund(db: AsyncSession, amount: int, reason: str) -> int:
     return await get_balance(db)
 
 
+def _read_ref(ref_path: Path) -> str | None:
+    if not ref_path.exists():
+        return None
+    b64 = base64.b64encode(ref_path.read_bytes()).decode()
+    suffix = "jpeg" if ref_path.suffix.lower() in (".jpg", ".jpeg") else "png"
+    return f"data:image/{suffix};base64,{b64}"
+
+
 async def _gen_image(prompt: str, ref_path: Path | None = None) -> bytes | None:
     body = {
         "model": settings.image_model,
@@ -45,10 +54,10 @@ async def _gen_image(prompt: str, ref_path: Path | None = None) -> bytes | None:
         "response_format": "b64_json",
         "watermark": False,
     }
-    if ref_path and ref_path.exists():
-        b64 = base64.b64encode(ref_path.read_bytes()).decode()
-        suffix = "jpeg" if ref_path.suffix.lower() in (".jpg", ".jpeg") else "png"
-        body["image"] = f"data:image/{suffix};base64,{b64}"
+    if ref_path:
+        ref_data = await asyncio.to_thread(_read_ref, ref_path)
+        if ref_data:
+            body["image"] = ref_data
     async with httpx.AsyncClient(timeout=240) as client:
         resp = await client.post(
             "https://tokendance.space/gateway/ark/v3/images/generations",
@@ -115,6 +124,7 @@ async def buy(db: AsyncSession, kind: str, hint: str, by_nickname: str) -> Wardr
     fname = f"wardrobe_{item_id.hex[:12]}.webp"
     try:
         import io
+
         from PIL import Image
         img = Image.open(io.BytesIO(image)).convert("RGB")
         img.thumbnail((900, 1200), Image.LANCZOS)

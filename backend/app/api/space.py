@@ -1,7 +1,7 @@
 """空间 API：居民名录 + 在场状态"""
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -51,7 +51,7 @@ async def presence(db: AsyncSession = Depends(get_db)):
     keys = [f"presence:{c.id}" for c in chars]
     values = await r.mget(keys) if keys else []
     out = {}
-    for c, status in zip(chars, values):
+    for c, status in zip(chars, values, strict=False):
         if not status:
             options = DEFAULT_STATUS.get(c.id, ["在空间里待着"])
             # 夜行者白天睡觉

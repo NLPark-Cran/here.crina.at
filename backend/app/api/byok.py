@@ -16,7 +16,7 @@ from ..cache import get_redis
 from ..config import get_settings
 from ..db import get_db
 from ..models import OAuthAccount, User
-from ..security import decrypt_payload, encrypt_payload, get_current_user
+from ..security import encrypt_payload, get_current_user
 
 router = APIRouter(prefix="/byok", tags=["byok"])
 settings = get_settings()

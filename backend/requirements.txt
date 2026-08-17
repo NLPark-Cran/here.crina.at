@@ -13,3 +13,5 @@ icalendar
 aiosmtplib
 python-multipart
 itsdangerous
+aiofiles
+ruff

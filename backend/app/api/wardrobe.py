@@ -28,7 +28,7 @@ async def show(db: AsyncSession = Depends(get_db)):
         "items": [{"id": str(i.id), "kind": i.kind, "title": i.title, "image_url": i.image_url,
                    "cost": i.cost, "note": i.note, "wearing": i.wearing,
                    "created_at": i.created_at.isoformat()} for i in items],
-        "ledger": [{"delta": l.delta, "reason": l.reason, "created_at": l.created_at.isoformat()} for l in ledger],
+        "ledger": [{"delta": entry.delta, "reason": entry.reason, "created_at": entry.created_at.isoformat()} for entry in ledger],
     }
 
 
