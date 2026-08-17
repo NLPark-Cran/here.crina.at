@@ -24,7 +24,7 @@ export function HomePage() {
     spaceApi.characters().then((d) => setCharacters(d.characters)).catch(() => {})
     spaceApi.presence().then((d) => setPresence(d.presence)).catch(() => {})
     postsApi.list(3).then((d) => setPosts(d.posts.slice(0, 3))).catch(() => {})
-    probeImage('/assets/hall_hero.png').then(setHasHallHero)
+    probeImage('/assets/hall_hero.webp').then(setHasHallHero)
   }, [])
 
   const crina = characters.find((c) => c.id === 'crina')
@@ -37,14 +37,18 @@ export function HomePage() {
         transition={{ duration: 0.5, ease: 'easeOut' }}
         className="relative overflow-hidden rounded-3xl border border-warm-line/60 shadow-card"
       >
-        {/* 门厅背景图（存在才用，低透明度 + 柔光叠加，保证文字可读） */}
+        {/* 门厅氛围背景（视频优先，图片兑底，低透明度 + 柔光叠加保证文字可读） */}
         {hasHallHero && (
           <>
-            <img
-              src="/assets/hall_hero.png"
-              alt=""
+            <video
+              src="/assets/hall_ambience.mp4"
+              poster="/assets/hall_hero.webp"
+              autoPlay
+              muted
+              loop
+              playsInline
               aria-hidden
-              className="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-soft-light pointer-events-none select-none"
+              className="absolute inset-0 w-full h-full object-cover opacity-25 mix-blend-soft-light pointer-events-none select-none"
             />
             <div className="absolute inset-0 bg-gradient-to-b from-cream/40 via-cream/70 to-cream pointer-events-none" />
           </>
@@ -74,7 +78,7 @@ export function HomePage() {
             className="order-1 md:order-2 shrink-0"
           >
             <img
-              src="/assets/crina_full.png"
+              src="/assets/crina_full.webp"
               alt={crina?.name ?? 'crina'}
               className="h-56 md:h-72 w-auto object-contain drop-shadow-[0_12px_28px_rgba(138,143,196,0.35)]"
               onError={(e) => {

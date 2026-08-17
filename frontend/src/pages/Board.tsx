@@ -216,6 +216,12 @@ function TaskCard({
   const abortRef = useRef<AbortController | null>(null)
   const toolKey = useRef(0)
   const streamedRef = useRef(false)
+  const liveStartedRef = useRef(false)
+
+  // 排队中的任务转为施工中时，允许重新连接拿到实时流
+  useEffect(() => {
+    if (task.status === 'running' && !liveStartedRef.current) streamedRef.current = false
+  }, [task.status])
 
   // 展开详情时自动连接施工流（历史回放 + 实时追加）
   useEffect(() => {
@@ -229,6 +235,7 @@ function TaskCard({
       (ev) => {
         switch (ev.type) {
           case 'started':
+            liveStartedRef.current = true
             setLive(true)
             break
           case 'text':
@@ -275,7 +282,7 @@ function TaskCard({
       })
     return () => ctrl.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, task.id])
+  }, [open, task.id, task.status])
 
   const cancel = async () => {
     if (cancelling) return
