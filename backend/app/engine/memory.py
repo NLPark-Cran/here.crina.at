@@ -52,12 +52,20 @@ async def build_context(db: AsyncSession, user: User, character: Character,
 
     mode_prompt = MODE_PROMPTS.get(mode, "")
 
+    # 特别的朋友识别（如安风的原型本尊到访）
+    from ..soul.characters import SPECIAL_FRIENDS
+    special_note = ""
+    if user.email:
+        hit = SPECIAL_FRIENDS.get(user.email.strip().lower())
+        if hit and hit[0] == character.id:
+            special_note = f"\n- ⭐ {hit[1]}（按人设要求自然反应，别念设定）"
+
     system = f"""{soul_block}
 
 # 当前情境
 - 现在时间：{now.strftime('%Y年%m月%d日 %H:%M')}（{'凌晨' if now.hour < 6 else '上午' if now.hour < 12 else '下午' if now.hour < 18 else '晚上'}）
 - 你在私聊间里和 {user.nickname}（关系：{user.relation_tier}）聊天
-{mode_prompt}
+{mode_prompt}{special_note}
 {mem_block}
 {summary_block}
 

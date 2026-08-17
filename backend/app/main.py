@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .agentpool import proxy as agent_proxy
-from .api import agent, auth, byok, chat, importer, letters, posts, settings_extra, space, wardrobe
+from .api import agent, archive, auth, byok, chat, events, files, importer, letters, posts, settings_extra, space, wardrobe
 from .config import get_settings
 
 settings = get_settings()
@@ -44,6 +44,9 @@ app.include_router(chat.router, prefix=settings.api_prefix)
 app.include_router(space.router, prefix=settings.api_prefix)
 app.include_router(posts.router, prefix=settings.api_prefix)
 app.include_router(letters.router, prefix=settings.api_prefix)
+app.include_router(events.router, prefix=settings.api_prefix)
+app.include_router(archive.router, prefix=settings.api_prefix)
+app.include_router(files.router, prefix=settings.api_prefix)
 app.include_router(byok.router, prefix=settings.api_prefix)
 app.include_router(agent.router, prefix=settings.api_prefix)
 app.include_router(importer.router, prefix=settings.api_prefix)

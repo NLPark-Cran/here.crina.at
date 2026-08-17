@@ -34,7 +34,7 @@ class SetMode(BaseModel):
 
 def conv_out(c: Conversation) -> dict:
     return {"id": str(c.id), "character_id": c.character_id, "mode": c.mode,
-            "title": c.title, "updated_at": c.updated_at.isoformat()}
+            "title": c.title, "folder": c.folder, "updated_at": c.updated_at.isoformat()}
 
 
 @router.post("/conversations")

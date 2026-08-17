@@ -100,7 +100,7 @@ async def emind_import(user: User = Depends(get_current_user), db: AsyncSession 
                 if dup:
                     continue
                 new_conv = Conversation(user_id=user.id, character_id="crina", mode="auto",
-                                        title=title)
+                                        folder="emind", title=title)
                 db.add(new_conv)
                 await db.flush()
                 msgs = (await conn.execute(text(

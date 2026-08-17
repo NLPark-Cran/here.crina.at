@@ -105,6 +105,11 @@ async def watcha_callback(code: str | None = None, state: str | None = None,
         if profile.get("email"):
             user.email = profile["email"]
 
+    # 特别的朋友：特定邮箱登录直升「老友」
+    from ..soul.characters import SPECIAL_FRIENDS
+    if user.email and user.email.strip().lower() in SPECIAL_FRIENDS:
+        user.relation_tier = "老友"
+
     # 保存观猹 token（加密）
     acct = (await db.execute(
         select(OAuthAccount).where(OAuthAccount.user_id == user.id, OAuthAccount.provider == "watcha")

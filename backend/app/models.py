@@ -70,6 +70,7 @@ class Conversation(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     character_id: Mapped[str] = mapped_column(String(32), ForeignKey("characters.id"), default="crina")
     mode: Mapped[str] = mapped_column(String(16), default="auto")  # auto/brainstorm/guide/probe/extract/off
+    folder: Mapped[str] = mapped_column(String(32), default="")  # 空=未分组；emind=旧家导入
     title: Mapped[str] = mapped_column(String(128), default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
