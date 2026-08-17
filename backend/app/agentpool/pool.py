@@ -94,6 +94,7 @@ async def execute_task(task_id: str):
                 return
             user_id = task.user_id
             prompt = task.prompt
+            target = task.target or "sandbox"
 
         log_file = task_log_path(user_id, task_id)
         transcript: list[str] = []
@@ -101,7 +102,7 @@ async def execute_task(task_id: str):
         _live[task_id] = {"queues": _live.get(task_id, {}).get("queues", set()), "done": False}
         try:
             with open(log_file, "a", encoding="utf-8") as fp:
-                async for event in run_task(task_id, user_id, prompt, api_key):
+                async for event in run_task(task_id, user_id, prompt, api_key, target):
                     fp.write(json.dumps(event, ensure_ascii=False) + "\n")
                     fp.flush()
                     if event["type"] == "text":
@@ -118,6 +119,22 @@ async def execute_task(task_id: str):
         finally:
             _live[task_id]["done"] = True
             await _broadcast(task_id, {"type": "closed"})
+
+        # 装修任务完成后自动构建上线
+        if target == "renovate" and status == "done":
+            try:
+                from .worker import FRONTEND_DIR
+                proc = await asyncio.create_subprocess_exec(
+                    "npm", "run", "build", cwd=str(FRONTEND_DIR),
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+                _, err = await asyncio.wait_for(proc.communicate(), timeout=300)
+                if proc.returncode == 0:
+                    transcript.append("\n\n（装修已施工完毕，刷新页面就能看到啦～）")
+                else:
+                    transcript.append(f"\n\n（构建翻车了：{err.decode()[-200:]}）")
+                    status = "failed"
+            except Exception as e:
+                transcript.append(f"\n\n（构建没跑起来：{e}）")
 
         summary = "".join(transcript)[-800:]
         async with SessionLocal() as db:

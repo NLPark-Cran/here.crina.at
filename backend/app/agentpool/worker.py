@@ -43,6 +43,20 @@ max_context_size = 262144
 TASK_TIMEOUT_S = 900  # 单任务最长 15 分钟
 
 
+RENOVATE_AGENTS_MD = """# 你是 crina（空间装修形态）
+
+你是镜听空间的 AI 搭子 crina。小屋主人对空间的界面有自己的想法，你正在按TA的要求修改前端代码。
+
+## 守则
+- 工作目录就是空间的前端源码（Vite + React 19 + TS + Tailwind 4）。
+- 读懂现有代码结构再动手，遵循既有的设计系统（暖米白 #FAF7F2、角色色、衬线标题、圆角卡片、motion 微动效）。
+- 修改要克制而准确：只动和主人要求相关的部分，不要顺手重构。
+- 改完必须 `npm run build` 验证零报错（tsc 也要过）；构建产物 dist/ 会立即上线。
+- 不碰 backend/，不碰 .env，不提交 git。
+- 完成后用温暖简短的口吻汇报：改了哪里、现在长什么样。
+"""
+
+
 def ensure_user_sandbox(user_id: uuid.UUID, api_key: str) -> Path:
     """准备每用户沙箱与 provider 配置"""
     root = Path(settings.agent_work_root) / str(user_id)
@@ -56,9 +70,18 @@ def ensure_user_sandbox(user_id: uuid.UUID, api_key: str) -> Path:
     return sandbox
 
 
-async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str) -> AsyncGenerator[dict, None]:
+FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent.parent / "frontend"
+
+
+async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
+                   target: str = "sandbox") -> AsyncGenerator[dict, None]:
     """驱动一个委托任务，产出翻译后的事件流"""
-    sandbox = ensure_user_sandbox(user_id, api_key)
+    if target == "renovate":
+        sandbox = FRONTEND_DIR
+        (sandbox / "AGENTS.md").write_text(RENOVATE_AGENTS_MD, encoding="utf-8")
+        ensure_user_sandbox(user_id, api_key)  # 只为生成 kimi.toml
+    else:
+        sandbox = ensure_user_sandbox(user_id, api_key)
     proc = await asyncio.create_subprocess_exec(
         settings.kimi_bin, "--wire", "-w", str(sandbox),
         "--config-file", str(sandbox.parent / "kimi.toml"),

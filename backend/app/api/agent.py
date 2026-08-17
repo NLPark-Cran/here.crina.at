@@ -24,10 +24,11 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 class CreateTask(BaseModel):
     title: str = Field(min_length=1, max_length=128)
     prompt: str = Field(min_length=1, max_length=8000)
+    target: str = "sandbox"  # sandbox / renovate（空间装修，仅主人）
 
 
 def task_out(t: AgentTask) -> dict:
-    return {"id": str(t.id), "title": t.title, "prompt": t.prompt, "status": t.status,
+    return {"id": str(t.id), "title": t.title, "prompt": t.prompt, "status": t.status, "target": t.target,
             "result_summary": t.result_summary, "created_at": t.created_at.isoformat(),
             "finished_at": t.finished_at.isoformat() if t.finished_at else None}
 
@@ -40,7 +41,11 @@ async def create_task(body: CreateTask, user: User = Depends(get_current_user),
         await chat_engine.check_and_count_quota(db, user, "agent", is_byok)
     except chat_engine.QuotaExceeded:
         raise HTTPException(429, "今日委托次数用完啦，接入词元蓄电池可不限量（设置 → 词元蓄电池）")
-    task = AgentTask(user_id=user.id, title=body.title, prompt=body.prompt)
+    if body.target == "renovate" and not user.is_owner:
+        raise HTTPException(403, "空间装修是小屋主人的专属权柄哦")
+    if body.target not in ("sandbox", "renovate"):
+        raise HTTPException(400, "未知委托类型")
+    task = AgentTask(user_id=user.id, title=body.title, prompt=body.prompt, target=body.target)
     db.add(task)
     await db.commit()
     fire_and_forget(pool.execute_task(str(task.id)))

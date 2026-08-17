@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import agent, auth, byok, chat, importer, letters, posts, space
+from .api import agent, auth, byok, chat, importer, letters, posts, settings_extra, space, wardrobe
 from .config import get_settings
 
 settings = get_settings()
@@ -38,6 +38,8 @@ app.include_router(letters.router, prefix=settings.api_prefix)
 app.include_router(byok.router, prefix=settings.api_prefix)
 app.include_router(agent.router, prefix=settings.api_prefix)
 app.include_router(importer.router, prefix=settings.api_prefix)
+app.include_router(settings_extra.router, prefix=settings.api_prefix)
+app.include_router(wardrobe.router, prefix=settings.api_prefix)
 
 
 @app.get("/api/health")

@@ -187,10 +187,35 @@ class AgentTask(Base):
     title: Mapped[str] = mapped_column(String(128))
     prompt: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)  # queued/running/done/failed/cancelled
+    target: Mapped[str] = mapped_column(String(16), default="sandbox")  # sandbox 沙箱 / renovate 空间装修（主人专属）
     session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     result_summary: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WardrobeItem(Base):
+    """crina 的衣橱/空间摆件（用小金库购置）"""
+    __tablename__ = "wardrobe_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    kind: Mapped[str] = mapped_column(String(16))  # outfit 装扮 / decor 摆件
+    title: Mapped[str] = mapped_column(String(64))
+    image_url: Mapped[str] = mapped_column(Text)
+    cost: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str] = mapped_column(Text, default="")
+    wearing: Mapped[bool] = mapped_column(Boolean, default=False)  # 当前穿搭
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PurseLedger(Base):
+    """小金库流水（镜币）"""
+    __tablename__ = "purse_ledger"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    delta: Mapped[int] = mapped_column(Integer)  # 正进负出
+    reason: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class UsageCounter(Base):

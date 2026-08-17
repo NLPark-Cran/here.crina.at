@@ -179,6 +179,17 @@ async def job_remind():
                 log.info("事件提醒已发送 user=%s event=%s", user.id, ev.title)
 
 
+async def job_shopping():
+    """每周日傍晚：经费充足的话 crina 自己去逛街"""
+    from ..engine import wardrobe
+    async with SessionLocal() as db:
+        balance = await wardrobe.get_balance(db)
+        if balance < wardrobe.OUTFIT_COST:
+            return
+        kind = "outfit" if random.random() < 0.6 else "decor"
+        await wardrobe.buy(db, kind, "", "")
+
+
 _scheduler: AsyncIOScheduler | None = None
 
 
@@ -195,6 +206,7 @@ def start_scheduler():
     _scheduler.add_job(job_greet, CronTrigger(hour=8, minute=10), args=["morning"], id="greet_morning")
     _scheduler.add_job(job_greet, CronTrigger(hour=22, minute=40), args=["night"], id="greet_night")
     _scheduler.add_job(job_remind, IntervalTrigger(minutes=5), id="remind")
+    _scheduler.add_job(job_shopping, CronTrigger(day_of_week="sun", hour=20, minute=15), id="shopping")
     _scheduler.start()
     log.info("主动性引擎已启动")
 
