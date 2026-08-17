@@ -76,19 +76,23 @@ async def chat_once(messages: list[dict], api_key: str | None = None,
 
 
 async def tts(text: str, voice_id: str = "", api_key: str | None = None) -> bytes:
-    """语音合成（minimax-speech）→ 音频字节"""
+    """语音合成（minimax t2a_v2）→ mp3 字节"""
     key = api_key or settings.tokendance_api_key
     body = {
         "model": settings.tts_model,
-        "input": text[:2000],
-        "voice": voice_id or "female-shaonv",
-        "response_format": "mp3",
+        "text": text[:1000],
+        "voice_setting": {"voice_id": voice_id or "female-shaonv", "speed": 1, "vol": 1, "pitch": 0},
+        "audio_setting": {"sample_rate": 32000, "bitrate": 128000, "format": "mp3", "channel": 1},
     }
     async with httpx.AsyncClient(timeout=90) as client:
-        resp = await client.post(f"{settings.tokendance_base_url}/audio/speech",
+        resp = await client.post("https://tokendance.space/gateway/minimax/v1/t2a_v2",
                                  headers=_headers(key), json=body)
         resp.raise_for_status()
-        return resp.content
+        data = resp.json()
+        base_resp = data.get("base_resp") or {}
+        if base_resp.get("status_code", 0) != 0:
+            raise RuntimeError(f"TTS 失败: {base_resp.get('status_msg', '')[:100]}")
+        return bytes.fromhex(data["data"]["audio"])
 
 
 async def gen_image(prompt: str, size: str = "1024x1024",

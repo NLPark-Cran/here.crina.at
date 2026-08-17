@@ -140,7 +140,8 @@ async def dev_login(nickname: str = "镜听", owner: bool = True, db: AsyncSessi
     """仅 DEBUG 模式可用的测试登录"""
     if not settings.debug:
         raise HTTPException(404, "not found")
-    fake_id = abs(hash(nickname)) % 10**8
+    import hashlib as _hl
+    fake_id = int(_hl.md5(nickname.encode()).hexdigest()[:8], 16) % 10**8
     user = (await db.execute(select(User).where(User.watcha_user_id == fake_id))).scalar_one_or_none()
     if user is None:
         user = User(watcha_user_id=fake_id, nickname=nickname, is_owner=owner,

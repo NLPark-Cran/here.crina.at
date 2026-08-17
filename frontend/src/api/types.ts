@@ -129,3 +129,52 @@ export interface WikiPage {
   public?: boolean
   created_at: string
 }
+
+// ---------- 委托板 ----------
+export type TaskStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+
+export interface AgentTask {
+  id: string
+  title: string
+  prompt: string
+  status: TaskStatus
+  result_summary: string | null
+  created_at: string
+  finished_at: string | null
+}
+
+/** 任务施工流事件（字段宽松，后端会回放落盘日志 + 实时追加） */
+export interface TaskStreamEvent {
+  type: 'started' | 'text' | 'tool_start' | 'tool_end' | 'finished' | 'error' | 'closed' | 'eof' | 'ping' | string
+  text?: string
+  name?: string
+  id?: string
+  ok?: boolean
+  message?: string
+  status?: string
+}
+
+// ---------- BYOK / Google / 搬家 ----------
+export interface ByokStatus {
+  connected: boolean
+}
+
+export interface GoogleStatus {
+  connected: boolean
+  available: boolean
+}
+
+export interface EmindStatus {
+  available: boolean
+  emind_name?: string
+  conversations?: number
+  messages?: number
+  memories?: number
+  reason?: string
+}
+
+export interface EmindImportResult {
+  ok: boolean
+  imported: { conversations: number; messages: number; memories: number }
+  message: string
+}

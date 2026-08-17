@@ -1,17 +1,22 @@
 import type {
+  AgentTask,
+  ByokStatus,
   Character,
-  ChatMessage,
   ChatMode,
   ChatStreamEvent,
   Conversation,
   ConversationDetail,
+  EmindImportResult,
+  EmindStatus,
   GarbageItem,
+  GoogleStatus,
   Letter,
   MeOptional,
   Memory,
   Post,
   PresenceMap,
   SpaceEvent,
+  TaskStreamEvent,
   User,
   WikiPage,
 } from './types'
@@ -86,24 +91,14 @@ export const chatApi = {
   remove: (id: string) => del<{ ok: boolean }>(`/api/chat/conversations/${id}`),
 }
 
-/**
- * 发消息（SSE 流式）：逐行解析 `data: {...}\n\n`，把事件回调出去。
- */
-export async function streamChatMessage(
-  convId: string,
-  content: string,
-  onEvent: (ev: ChatStreamEvent) => void,
-  signal?: AbortSignal,
+/** 通用 SSE 解析：逐行读 `data: {...}\n\n`，把 JSON 事件回调出去 */
+async function readSseStream<T>(
+  res: Response,
+  onEvent: (ev: T) => void,
+  failMessage: string,
 ): Promise<void> {
-  const res = await fetch(`/api/chat/conversations/${convId}/messages`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-    signal,
-  })
   if (!res.ok || !res.body) {
-    let message = `发送失败（${res.status}）`
+    let message = `${failMessage}（${res.status}）`
     try {
       const data = await res.json()
       if (typeof data?.detail === 'string') message = data.detail
@@ -129,13 +124,32 @@ export async function streamChatMessage(
         const payload = line.slice(5).trim()
         if (!payload) continue
         try {
-          onEvent(JSON.parse(payload) as ChatStreamEvent)
+          onEvent(JSON.parse(payload) as T)
         } catch {
           /* 跳过无法解析的行 */
         }
       }
     }
   }
+}
+
+/**
+ * 发消息（SSE 流式）：逐行解析 `data: {...}\n\n`，把事件回调出去。
+ */
+export async function streamChatMessage(
+  convId: string,
+  content: string,
+  onEvent: (ev: ChatStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/chat/conversations/${convId}/messages`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+    signal,
+  })
+  await readSseStream(res, onEvent, '发送失败')
 }
 
 /** TTS：返回 audio/mpeg 的 Blob */
@@ -167,6 +181,40 @@ export const lettersApi = {
     post<{ ok: boolean; message: string }>('/api/letters', { character_id, content }),
 }
 
+// ---------- 委托板 ----------
+export const agentApi = {
+  list: () => get<{ tasks: AgentTask[] }>('/api/agent/tasks'),
+  create: (title: string, prompt: string) =>
+    post<AgentTask>('/api/agent/tasks', { title, prompt }),
+  detail: (id: string) => get<AgentTask>(`/api/agent/tasks/${id}`),
+  cancel: (id: string) => post<{ ok: boolean }>(`/api/agent/tasks/${id}/cancel`),
+}
+
+/** 任务施工流（SSE）：历史回放 + 实时追加 */
+export async function streamTask(
+  taskId: string,
+  onEvent: (ev: TaskStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/agent/tasks/${taskId}/stream`, {
+    credentials: 'include',
+    signal,
+  })
+  await readSseStream(res, onEvent, '施工流连接失败')
+}
+
+// ---------- BYOK / Google / 搬家 ----------
+export const byokApi = {
+  status: () => get<ByokStatus>('/api/byok/status'),
+  disconnect: () => del<{ ok: boolean }>('/api/byok'),
+  googleStatus: () => get<GoogleStatus>('/api/byok/google/status'),
+}
+
+export const importApi = {
+  emindStatus: () => get<EmindStatus>('/api/import/emind/status'),
+  emindImport: () => post<EmindImportResult>('/api/import/emind'),
+}
+
 // ---------- 档案馆 ----------
 export const archiveApi = {
   memories: () => get<{ memories: Memory[] }>('/api/memories'),
@@ -181,6 +229,19 @@ export const archiveApi = {
   deleteEvent: (id: string) => del<{ ok: boolean }>(`/api/events/${id}`),
   icsUrl: () => get<{ url: string }>('/api/events/ics-url'),
   wiki: () => get<{ pages: WikiPage[] }>('/api/wiki'),
+  extractWiki: (conversation_id: string) =>
+    post<{ id: string; title: string }>('/api/wiki/extract', {
+      conversation_id,
+      public: false,
+    }),
 }
 
-export type { ChatMessage }
+/** 探测静态图片是否存在（HEAD 请求） */
+export async function probeImage(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: 'HEAD' })
+    return res.ok
+  } catch {
+    return false
+  }
+}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { motion } from 'motion/react'
 import { DoorOpen, Sparkles, MessageCircleHeart } from 'lucide-react'
-import { postsApi, spaceApi } from '../api/client'
+import { postsApi, probeImage, spaceApi } from '../api/client'
 import type { Character, Post } from '../api/types'
 import { CharacterAvatar } from '../components/CharacterAvatar'
 import { greeting, relativeTime } from '../lib/time'
@@ -18,11 +18,13 @@ export function HomePage() {
   const [characters, setCharacters] = useState<Character[]>([])
   const [presence, setPresence] = useState<Record<string, string>>({})
   const [posts, setPosts] = useState<Post[]>([])
+  const [hasHallHero, setHasHallHero] = useState(false)
 
   useEffect(() => {
     spaceApi.characters().then((d) => setCharacters(d.characters)).catch(() => {})
     spaceApi.presence().then((d) => setPresence(d.presence)).catch(() => {})
     postsApi.list(3).then((d) => setPosts(d.posts.slice(0, 3))).catch(() => {})
+    probeImage('/assets/hall_hero.png').then(setHasHallHero)
   }, [])
 
   const crina = characters.find((c) => c.id === 'crina')
@@ -33,36 +35,66 @@ export function HomePage() {
       <motion.section
         {...fadeUp}
         transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="flex flex-col items-center text-center pt-6 md:pt-12"
+        className="relative overflow-hidden rounded-3xl border border-warm-line/60 shadow-card"
       >
-        <motion.div
-          animate={{ y: [0, -6, 0] }}
-          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <CharacterAvatar
-            name={crina?.name ?? 'crina'}
-            color={crina?.color ?? '#8A8FC4'}
-            avatarUrl={crina?.avatar_url || null}
-            size={104}
-            className="ring-4 ring-white shadow-float"
-          />
-        </motion.div>
-        <h1 className="font-title text-4xl md:text-5xl mt-6 tracking-wide">镜听空间</h1>
-        <p className="mt-3 text-ink-soft">{greeting()}</p>
-        {user === null && (
-          <Link
-            to="/login"
-            className="btn-press mt-6 inline-flex items-center gap-2 px-7 py-3 rounded-full bg-crina text-white shadow-float hover:bg-crina-deep"
+        {/* 门厅背景图（存在才用，低透明度 + 柔光叠加，保证文字可读） */}
+        {hasHallHero && (
+          <>
+            <img
+              src="/assets/hall_hero.png"
+              alt=""
+              aria-hidden
+              className="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-soft-light pointer-events-none select-none"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-cream/40 via-cream/70 to-cream pointer-events-none" />
+          </>
+        )}
+        <div className="relative flex flex-col md:flex-row items-center gap-6 md:gap-10 px-6 md:px-12 pt-8 md:pt-10 pb-8">
+          <div className="flex-1 text-center md:text-left order-2 md:order-1">
+            <h1 className="font-title text-4xl md:text-5xl tracking-wide">镜听空间</h1>
+            <p className="mt-3 text-ink-soft">{greeting()}</p>
+            {user === null && (
+              <Link
+                to="/login"
+                className="btn-press mt-6 inline-flex items-center gap-2 px-7 py-3 rounded-full bg-crina text-white shadow-float hover:bg-crina-deep"
+              >
+                <DoorOpen className="w-4 h-4" />
+                敲门进来
+              </Link>
+            )}
+            {user && (
+              <p className="mt-4 text-sm text-crina-deep">
+                {user.nickname}，你回来啦，拖鞋在门边。
+              </p>
+            )}
+          </div>
+          <motion.div
+            animate={{ y: [0, -8, 0] }}
+            transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+            className="order-1 md:order-2 shrink-0"
           >
-            <DoorOpen className="w-4 h-4" />
-            敲门进来
-          </Link>
-        )}
-        {user && (
-          <p className="mt-4 text-sm text-crina-deep">
-            {user.nickname}，你回来啦，拖鞋在门边。
-          </p>
-        )}
+            <img
+              src="/assets/crina_full.png"
+              alt={crina?.name ?? 'crina'}
+              className="h-56 md:h-72 w-auto object-contain drop-shadow-[0_12px_28px_rgba(138,143,196,0.35)]"
+              onError={(e) => {
+                // 立绘不可用时回退到圆形头像占位
+                const el = e.currentTarget
+                el.style.display = 'none'
+                el.nextElementSibling?.classList.remove('hidden')
+              }}
+            />
+            <div className="hidden">
+              <CharacterAvatar
+                name={crina?.name ?? 'crina'}
+                color={crina?.color ?? '#8A8FC4'}
+                avatarUrl={crina?.avatar_url || null}
+                size={104}
+                className="ring-4 ring-white shadow-float"
+              />
+            </div>
+          </motion.div>
+        </div>
       </motion.section>
 
       {/* 居民们在干嘛 */}

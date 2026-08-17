@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  Archive,
   ArrowLeft,
   Loader2,
   MessagesSquare,
@@ -10,7 +11,7 @@ import {
   Trash2,
   Volume2,
 } from 'lucide-react'
-import { ApiError, chatApi, fetchTtsAudio, spaceApi, streamChatMessage } from '../api/client'
+import { archiveApi, ApiError, chatApi, fetchTtsAudio, spaceApi, streamChatMessage } from '../api/client'
 import type { Character, ChatMessage, ChatMode, Conversation } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { CharacterAvatar } from '../components/CharacterAvatar'
@@ -55,6 +56,8 @@ function ChatInner() {
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const [toast, setToast] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -191,6 +194,20 @@ function ChatInner() {
     loadConversations()
   }
 
+  const extractToArchive = async () => {
+    if (!active || extracting) return
+    setExtracting(true)
+    try {
+      const { title } = await archiveApi.extractWiki(active.id)
+      setToast(`已经收进档案馆啦：《${title}》`)
+      setTimeout(() => setToast(''), 6000)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '没收进去，等下再试？')
+    } finally {
+      setExtracting(false)
+    }
+  }
+
   const changeMode = async (mode: ChatMode) => {
     if (!active) return
     try {
@@ -217,6 +234,25 @@ function ChatInner() {
 
   return (
     <div className="md:flex md:gap-5 md:h-[calc(100dvh-8.5rem)]">
+      {/* 收进档案馆 toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-paper rounded-2xl shadow-float border border-baixu/30 px-5 py-3.5 text-sm text-center"
+          >
+            {toast}
+            <button
+              onClick={() => navigate('/archive')}
+              className="block mx-auto mt-1 text-xs text-crina-deep hover:underline"
+            >
+              去档案馆看看 →
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* 会话列表（移动端：无会话时显示） */}
       <aside
         className={`md:w-72 md:shrink-0 md:flex md:flex-col bg-paper rounded-2xl shadow-card border border-warm-line overflow-hidden ${
@@ -363,6 +399,15 @@ function ChatInner() {
                     {m.label}
                   </button>
                 ))}
+                <button
+                  onClick={extractToArchive}
+                  disabled={extracting || messages.length === 0}
+                  title="把这场探讨的精华萃取成一页，收进档案馆"
+                  className="btn-press shrink-0 ml-auto inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-baixu/12 text-baixu hover:bg-baixu/20 disabled:opacity-40"
+                >
+                  {extracting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
+                  {extracting ? '萃取中…' : '收进档案馆'}
+                </button>
               </div>
             </div>
 

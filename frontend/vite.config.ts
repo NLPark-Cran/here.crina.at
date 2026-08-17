@@ -4,6 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // nginx 把 /assets/ alias 到了立绘目录，构建产物改用 /static/ 避免冲突
+    assetsDir: 'static',
+  },
   server: {
     host: '127.0.0.1',
     port: 5173,
