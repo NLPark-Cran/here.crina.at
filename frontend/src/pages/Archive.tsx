@@ -15,7 +15,7 @@ import { ApiError, archiveApi } from '../api/client'
 import type { Memory, SpaceEvent, WikiPage } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { EmptyState } from '../components/EmptyState'
-import { MarkdownLite } from '../components/MarkdownLite'
+import { Markdown } from '../components/Markdown'
 import { formatDateTime, relativeTime } from '../lib/time'
 
 type Tab = 'memories' | 'calendar' | 'wiki'
@@ -427,7 +427,7 @@ function WikiTab() {
                     className="overflow-hidden"
                   >
                     <div className="px-5 pb-5 pt-1 border-t border-warm-line/60">
-                      <MarkdownLite content={p.content} />
+                      <Markdown content={p.content} />
                     </div>
                   </motion.div>
                 )}

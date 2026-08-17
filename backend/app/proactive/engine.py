@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import random
 from datetime import UTC, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -102,19 +103,38 @@ async def job_autopost(hour: int):
             log.info("居民 %s 发了碎碎念", cid)
 
 
-async def job_greet(period: str):
-    """早安/晚安问候信（7 天内活跃的用户）"""
+MORNING_HOUR = 8   # 用户当地 8 点发早安信
+NIGHT_HOUR = 22     # 用户当地 22 点发晚安信
+
+
+def _user_tz(user: User) -> ZoneInfo:
+    try:
+        return ZoneInfo(user.timezone or "Asia/Shanghai")
+    except Exception:
+        return ZoneInfo("Asia/Shanghai")
+
+
+async def job_greet_tick():
+    """每小时整点过 10 分跑一次：按各用户所在时区，当地 8 点发早安、22 点发晚安"""
     cutoff = datetime.now(UTC) - timedelta(days=7)
+    now_utc = datetime.now(UTC)
     async with SessionLocal() as db:
         users = (await db.execute(select(User).where(User.last_seen_at >= cutoff))).scalars().all()
         if not users:
             return
         char = (await db.execute(select(Character).where(Character.id == "crina"))).scalar_one()
-        now = datetime.now(CST)
-        holiday = HOLIDAYS.get((now.month, now.day))
         for user in users:
-            # 今天同时段已问候过则跳过
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            tz = _user_tz(user)
+            local_now = now_utc.astimezone(tz)
+            if local_now.hour == MORNING_HOUR:
+                period = "morning"
+            elif local_now.hour == NIGHT_HOUR:
+                period = "night"
+            else:
+                continue
+            holiday = HOLIDAYS.get((local_now.month, local_now.day))
+            # 用户当地「今天」同时段已问候过则跳过
+            today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
             dup = (await db.execute(
                 select(Letter).where(Letter.user_id == user.id, Letter.kind == period,
                                      Letter.created_at >= today_start)
@@ -180,9 +200,9 @@ async def job_remind():
                 user = await db.get(User, ev.user_id)
                 if not user:
                     continue
-                start_cst = start.astimezone(CST)
+                start_local = start.astimezone(_user_tz(user))
                 content = (f"{user.nickname}：\n\n谨提醒——「{ev.title}」将于 "
-                           f"{start_cst.strftime('%m月%d日 %H:%M')} 开始。\n"
+                           f"{start_local.strftime('%m月%d日 %H:%M')} 开始。\n"
                            f"{ev.description}\n\n别迟到呀。\n\n—— crina 谨上")
                 letter = Letter(user_id=user.id, character_id="crina", kind="reminder",
                                 title=f"提醒：{ev.title}", content=content)
@@ -221,8 +241,7 @@ def start_scheduler():
     for hour in (8, 12, 18, 23):
         _scheduler.add_job(job_autopost, CronTrigger(hour=hour, minute=random.randint(5, 45)),
                            args=[hour], id=f"autopost_{hour}")
-    _scheduler.add_job(job_greet, CronTrigger(hour=8, minute=10), args=["morning"], id="greet_morning")
-    _scheduler.add_job(job_greet, CronTrigger(hour=22, minute=40), args=["night"], id="greet_night")
+    _scheduler.add_job(job_greet_tick, CronTrigger(minute=10), id="greet_tick")
     _scheduler.add_job(job_remind, IntervalTrigger(minutes=5), id="remind")
     _scheduler.add_job(job_shopping, CronTrigger(day_of_week="sun", hour=20, minute=15), id="shopping")
     _scheduler.start()

@@ -6,6 +6,7 @@ import type { Character, Letter } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { CharacterAvatar } from '../components/CharacterAvatar'
 import { EmptyState } from '../components/EmptyState'
+import { Markdown } from '../components/Markdown'
 import { relativeTime } from '../lib/time'
 
 export function MailboxPage() {
@@ -209,9 +210,9 @@ function MailboxInner() {
                     className="overflow-hidden"
                   >
                     <div className="letter-paper mx-4 mb-4 rounded-xl border border-warm-line px-5 py-4">
-                      <p className="text-[15px] leading-[31px] whitespace-pre-wrap text-ink">
-                        {l.content}
-                      </p>
+                      <div className="text-[15px] leading-[31px] text-ink">
+                        <Markdown content={l.content} />
+                      </div>
                     </div>
                   </motion.div>
                 )}

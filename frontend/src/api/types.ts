@@ -7,6 +7,7 @@ export interface User {
   relation_tier: string
   email?: string | null
   notify_email?: boolean
+  timezone?: string
 }
 
 export interface MeOptional {

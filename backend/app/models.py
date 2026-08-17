@@ -28,6 +28,7 @@ class User(Base):
     is_owner: Mapped[bool] = mapped_column(Boolean, default=False)
     relation_tier: Mapped[str] = mapped_column(String(16), default="陌生")  # 陌生→熟人→老友
     notify_email: Mapped[bool] = mapped_column(Boolean, default=True)
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Shanghai")  # IANA 时区，问候信/提醒按此触发
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

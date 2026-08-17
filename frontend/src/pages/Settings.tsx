@@ -6,6 +6,7 @@ import {
   Bell,
   CalendarDays,
   DoorOpen,
+  Globe,
   HardDriveDownload,
   KeyRound,
   Loader2,
@@ -190,6 +191,8 @@ function SettingsInner() {
         </div>
         {notifyHint && <p className="mt-3 text-xs text-baixu">{notifyHint}</p>}
       </motion.section>
+
+      <TimezoneCard />
 
       {/* 退出 */}
       <motion.button
@@ -603,5 +606,97 @@ function ToggleRow({
         />
       </div>
     </button>
+  )
+}
+
+/** 时区设置：早安晚安信与事件提醒按用户当地时间触发 */
+function TimezoneCard() {
+  const [tz, setTz] = useState('')
+  const [saved, setSaved] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [now, setNow] = useState(new Date())
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+  const zones: string[] =
+    typeof Intl.supportedValuesOf === 'function'
+      ? Intl.supportedValuesOf('timeZone')
+      : ['Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York']
+
+  useEffect(() => {
+    authApi.me().then((u) => setTz(u.timezone || browserTz)).catch(() => setTz(browserTz))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    if (!saved) return
+    const t = setTimeout(() => setSaved(''), 3000)
+    return () => clearTimeout(t)
+  }, [saved])
+
+  const localTime = tz
+    ? now.toLocaleTimeString('zh-CN', { timeZone: tz, hour: '2-digit', minute: '2-digit' })
+    : ''
+
+  const save = async (next: string) => {
+    if (busy || !next) return
+    setBusy(true)
+    try {
+      await settingsApi.setTimezone(next)
+      setTz(next)
+      setSaved('记住啦，以后的信都按你的时间来')
+    } catch {
+      setSaved('没存上，再试一下？')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.2 }}
+      className="bg-paper rounded-2xl shadow-card border border-warm-line p-5"
+    >
+      <h2 className="font-title text-lg flex items-center gap-2 mb-1">
+        <Globe className="w-5 h-5 text-xuanmo" />
+        你住在哪里时间里
+      </h2>
+      <p className="text-xs text-ink-soft/80 mb-4">
+        早安晚安信和日程提醒，都会按你当地的时间抵达。
+      </p>
+      <div className="flex items-center gap-2">
+        <select
+          value={tz}
+          disabled={busy}
+          onChange={(e) => save(e.target.value)}
+          className="flex-1 min-w-0 bg-cream/60 border border-warm-line rounded-xl px-3 py-2.5 text-sm text-ink focus:outline-none focus:border-crina/50"
+        >
+          {tz && !zones.includes(tz) && <option value={tz}>{tz}</option>}
+          {zones.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </select>
+        {tz !== browserTz && (
+          <button
+            onClick={() => save(browserTz)}
+            disabled={busy}
+            className="btn-press shrink-0 text-xs px-3 py-2.5 rounded-xl border border-warm-line text-ink-soft hover:bg-cream/60"
+          >
+            跟随浏览器
+          </button>
+        )}
+      </div>
+      <div className="mt-3 flex items-center justify-between text-xs text-ink-soft/70">
+        <span>{tz ? `你那里现在 ${localTime}` : ''}</span>
+        {saved && <span className="text-baixu">{saved}</span>}
+      </div>
+    </motion.section>
   )
 }

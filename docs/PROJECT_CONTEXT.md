@@ -36,13 +36,13 @@ Agent 沙箱: /var/crina/users/<uid>/sandbox（+ kimi.toml 代理配置 + tasks/
 **agent（委托板）**：POST agent/tasks {title,prompt,target:sandbox|renovate(仅主人)}；GET agent/tasks[/{id}]；POST agent/tasks/{id}/cancel（仅 queued）；GET agent/tasks/{id}/stream → SSE（回放 jsonl+实时广播；事件：started/text/tool_start/tool_end/finished/error/closed/eof/ping）
 **files**：GET files（沙箱文件列表）；GET files/{path}（下载，防穿越）
 **byok**：GET byok/status；GET byok/connect → TokenDance OAuth(S256) → GET byok/callback（存加密 api_key）；DELETE byok；Google 同构（byok/google/*，需 GOOGLE_CLIENT_ID）
-**settings**：POST settings/email/send-code|verify（6 位码 10min，错 5 次作废）；POST settings/notify {notify_email}
+**settings**：POST settings/email/send-code|verify（6 位码 10min，错 5 次作废）；POST settings/notify {notify_email}；POST settings/timezone {timezone}（IANA 名，zoneinfo 校验）
 **importer**：GET import/emind/status；POST import/emind（邮箱匹配 eastmind 库，title 前缀幂等+30min 冷却）
 **px**：POST px/{token}/v1/chat/completions（任务级词元代理，仅此处放行）
 
 ## 4. DB schema（15 表，PG 库 crina）
 
-users(id,watcha_user_id uniq,nickname,avatar_url,email,is_owner,relation_tier 陌生/熟人/老友,notify_email,last_seen_at)
+users(id,watcha_user_id uniq,nickname,avatar_url,email,is_owner,relation_tier 陌生/熟人/老友,notify_email,timezone 默认Asia/Shanghai,last_seen_at)
 oauth_accounts(user_id+provider uniq, payload_enc Fernet 加密 JSON, scopes)
 characters(id slug 主键,name,tagline,mbti,color,avatar_url,soul_public,soul_private,voice_id,is_agent,active)
 conversations(id,user_id,character_id,mode,folder(''/'emind'),title,summary) ← messages(conversation_id,role user/character/narrator,character_id,kind,content) append-only
@@ -87,4 +87,7 @@ usage_counters(user_id+day+kind uniq, count) 配额原子计数
 
 ✅ 上线：观猹登录/聊天六模式/脑暴圆桌/记忆管道(新 ops 机制)/碎碎念+居民接话/垃圾堆/信箱/日历ICS/委托板/文件空间(读)/BYOK/emind导入/衣橱小金库/早晚安+提醒+邮件/门厅沉浸 hero/衣柜透明立绘
 🚧 进行中：记忆大扫除/晚安信记忆汇报/邮件 From 显示名（R1 未完）
-📋 待做（按序）：R2 streamdown 渲染 / R3 书桌工作台+轻IDE / R4 小屋剖面地图 / R5 设计系统升级 / R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
+✅ R1 记忆系统（ops+evidence、大扫除、晚安信汇报新记忆、发件人显示名）+ 用户时区（问候信/提醒按用户当地时间触发：greet_tick 每小时轮询各时区 8 点/22 点）
+✅ R2 streamdown 2.5 渲染（components/Markdown.tsx 统一封装；plugins code/math/cjk；聊天气泡/档案馆/信箱/委托汇报全接入；katex.min.css + index.css @source 指令 + shadcn 变量映射暖纸色；shiki/mermaid 按需 chunk；MarkdownLite 已删除）
+📋 待做（按序）：R3 书桌工作台+轻IDE / R4 小屋剖面地图 / R5 设计系统升级 / R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
+📚 调研存档：docs/research/duxiang-ai-moments.md（独响 App 全拆解：异步朋友圈节奏/七层关系数值/一起入睡/情绪兜底猫/居民互相串门）

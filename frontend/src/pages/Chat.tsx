@@ -17,6 +17,7 @@ import { archiveApi, ApiError, chatApi, fetchTtsAudio, spaceApi, streamChatMessa
 import type { Character, ChatMessage, ChatMode, Conversation } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { CharacterAvatar } from '../components/CharacterAvatar'
+import { Markdown } from '../components/Markdown'
 import { Toast } from '../components/Toast'
 import { relativeTime } from '../lib/time'
 
@@ -558,10 +559,10 @@ function ChatInner() {
                         {b.name}
                       </div>
                       <div
-                        className="bg-cream rounded-2xl rounded-tl-md px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap border border-warm-line/70 typing-caret"
+                        className="bg-cream rounded-2xl rounded-tl-md px-4 py-2.5 text-[15px] leading-relaxed border border-warm-line/70 typing-caret"
                         style={{ borderLeftColor: b.color, borderLeftWidth: 2 }}
                       >
-                        {b.text || '…'}
+                        {b.text ? <Markdown content={b.text} streaming /> : '…'}
                       </div>
                     </div>
                   </div>
@@ -833,10 +834,10 @@ const CharacterBubble = memo(function CharacterBubble({
           {name}
         </div>
         <div
-          className="bg-cream rounded-2xl rounded-tl-md px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap border border-warm-line/70"
+          className="bg-cream rounded-2xl rounded-tl-md px-4 py-2.5 text-[15px] leading-relaxed border border-warm-line/70"
           style={{ borderLeftColor: color, borderLeftWidth: 2 }}
         >
-          {content}
+          <Markdown content={content} />
         </div>
         <TtsButton text={content} characterId={characterId} />
       </div>

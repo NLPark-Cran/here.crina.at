@@ -172,6 +172,7 @@ async def me(user: User = Depends(get_current_user)):
         "is_owner": user.is_owner,
         "relation_tier": user.relation_tier,
         "notify_email": user.notify_email,
+        "timezone": user.timezone,
     }
 
 

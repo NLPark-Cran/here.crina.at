@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+/* streamdown 及其插件内部使用的 Tailwind 工具类（供 Tailwind 扫描） */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+@source "../node_modules/@streamdown/math/dist/*.js";
+@source "../node_modules/@streamdown/cjk/dist/*.js";
+
+/* streamdown 组件依赖的 shadcn 设计变量 → 映射到我们的暖纸色系 */
+:root {
+  --background: oklch(0.985 0.004 95);
+  --foreground: oklch(0.35 0.02 285);
+  --card: oklch(0.995 0.003 90);
+  --card-foreground: oklch(0.35 0.02 285);
+  --muted: oklch(0.96 0.008 90);
+  --muted-foreground: oklch(0.52 0.02 285);
+  --border: oklch(0.91 0.01 85);
+  --input: oklch(0.91 0.01 85);
+  --ring: oklch(0.72 0.08 280);
+  --primary: oklch(0.64 0.09 280);
+  --primary-foreground: oklch(0.99 0.002 90);
+  --secondary: oklch(0.95 0.01 90);
+  --secondary-foreground: oklch(0.4 0.02 285);
+  --accent: oklch(0.95 0.015 280);
+  --accent-foreground: oklch(0.4 0.03 285);
+  --radius: 0.75rem;
+}
+
 @theme {
   /* 暖纸底色与居民角色色 */
   --color-cream: #FAF7F2;

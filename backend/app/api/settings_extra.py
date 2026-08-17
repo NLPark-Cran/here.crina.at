@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -82,3 +83,19 @@ async def set_notify(body: NotifyPref, user: User = Depends(get_current_user), d
     user.notify_email = body.notify_email
     await db.commit()
     return {"ok": True, "notify_email": user.notify_email}
+
+
+class TimezonePref(BaseModel):
+    timezone: str
+
+
+@router.post("/timezone")
+async def set_timezone(body: TimezonePref, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    tz = body.timezone.strip()
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise HTTPException(400, "这个时区名字不认识，比如 Asia/Shanghai") from None
+    user.timezone = tz
+    await db.commit()
+    return {"ok": True, "timezone": user.timezone}

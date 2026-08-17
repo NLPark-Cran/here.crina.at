@@ -18,6 +18,7 @@ import { agentApi, ApiError, filesApi, streamTask } from '../api/client'
 import type { AgentTask, SpaceFile, TaskStatus } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { EmptyState } from '../components/EmptyState'
+import { Markdown } from '../components/Markdown'
 import { Toast } from '../components/Toast'
 import { relativeTime } from '../lib/time'
 import { useAuth } from '../store/auth'
@@ -548,7 +549,9 @@ function TaskCard({
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     交付啦
                   </div>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{task.result_summary}</p>
+                  <div className="text-sm leading-relaxed">
+                    <Markdown content={task.result_summary} />
+                  </div>
                 </div>
               )}
               {displayStatus === 'failed' && (

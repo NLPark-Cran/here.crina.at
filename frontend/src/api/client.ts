@@ -246,6 +246,8 @@ export const settingsApi = {
     post<{ ok: boolean; email: string; message: string }>('/api/settings/email/verify', { email, code }),
   setNotify: (notify_email: boolean) =>
     post<{ ok: boolean; notify_email: boolean }>('/api/settings/notify', { notify_email }),
+  setTimezone: (timezone: string) =>
+    post<{ ok: boolean; timezone: string }>('/api/settings/timezone', { timezone }),
 }
 
 // ---------- 档案馆 ----------
