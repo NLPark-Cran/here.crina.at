@@ -14,10 +14,13 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .proactive.engine import start_scheduler, stop_scheduler
+    start_scheduler()
     yield
+    stop_scheduler()
 
 
-app = FastAPI(title="镜听空间", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="镜听空间", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

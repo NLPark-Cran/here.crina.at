@@ -74,6 +74,14 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
         raise HTTPException(401, "用户不存在")
+    # 节流更新活跃时间（问候信用）
+    from .cache import get_redis
+    r = get_redis()
+    seen_key = f"seen:{user.id}"
+    if not await r.get(seen_key):
+        await r.setex(seen_key, 600, "1")
+        user.last_seen_at = datetime.now(timezone.utc)
+        await db.commit()
     return user
 
 

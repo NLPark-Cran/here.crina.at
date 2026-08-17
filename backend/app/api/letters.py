@@ -125,6 +125,15 @@ async def delete_event(event_id: str, user: User = Depends(get_current_user), db
     return {"ok": True}
 
 
+@router.get("/events/ics-url")
+async def ics_url(user: User = Depends(get_current_user)):
+    """返回当前用户的日历订阅链接"""
+    from ..config import get_settings
+    from ..security import create_session_token
+    token = create_session_token(user.id)
+    return {"url": f"{get_settings().site_url}/api/events.ics?token={token}"}
+
+
 @router.get("/events.ics")
 async def export_ics(token: str, db: AsyncSession = Depends(get_db)):
     """日历订阅导出（挂进手机日历）：?token=<JWT>"""
