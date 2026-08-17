@@ -39,11 +39,16 @@ here.crina.at「镜听空间」：Alice 模式的人格化云端伙伴空间，�
 - nginx：改 `deploy/nginx-here.crina.at.conf` → 同步 `/etc/nginx/sites-available/here.crina.at` → `nginx -t && systemctl reload nginx`。**注意 deploy 文件已含 443+证书路径，是配置唯一事实源，不要让 certbot 再改写**（续期会自动，不受影响）。
 - 限流：`/api/chat/` 10r/s burst 20。
 
+## 二期新增（2026-08-17 晚）
+- **邮箱**：SMTP 已接 ciallo@crina.at（netcup mx1528）。自建邮箱绑定：`/api/settings/email/send-code|verify`（Redis 验证码 10min、1/min 限流）；通知开关 `/api/settings/notify`。
+- **小金库与衣橱**：`engine/wardrobe.py` + `/api/space/wardrobe`（fund/wish/show）。装扮 88 镜币、摆件 45；seedream 参考生图（outfit 以 src_materials/avatar.jpg 为参考）；购置后自动换装+客厅炫耀帖；每周日 20:15 余额够就自己逛街（job_shopping）。
+- **装修委托**：AgentTask.target='renovate'（仅主人），workdir=frontend/，写完自动 npm run build 上线；AGENTS.md 会写入 frontend/（装修守则）。
+- 会话列表带 last_message 预览。
+
 ## 待站主配置（配置后功能自动解锁）
 1. **观猹生产 client**：目前用文档测试 client（authorize 已通）。正式请到[观猹申请表](https://agentuniverse.feishu.cn/share/base/form/shrcnHJ3ATlNg6ofNHssT2zK7Dh)申请（domain=https://here.crina.at，scope=read email），然后改 `.env` 的 WATCHA_CLIENT_ID/SECRET + OWNER_WATCHA_ID（站主的观猹 user_id，决定谁能看到私有层人设）。
 2. **SMTP**：`.env` 配 SMTP_HOST/PORT/USER/PASSWORD → 早晚问候与事件提醒自动发邮件。
-3. **Google**：`.env` 配 GOOGLE_CLIENT_ID/SECRET（GCP 建 OAuth client，scope: drive.file+calendar）→ 设置页出现连接入口。
-4. **WPS 365**：待 wps365 cli 凭证，接入 agentpool 沙箱。
+3. **Google**：`.env` 配 GOOGLE_CLIENT_ID/SECRET → 设置页出现连接入口；**WPS 365**：待凭证后接入 agentpool 沙箱。
 
 ## 测试
 - `curl https://here.crina.at/api/health`
