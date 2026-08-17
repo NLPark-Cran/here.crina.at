@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+alembic
+redis
+httpx
+pyjwt
+cryptography
+pydantic-settings
+apscheduler
+icalendar
+aiosmtplib
+python-multipart
+itsdangerous

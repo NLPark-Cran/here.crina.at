@@ -1,0 +1,15 @@
+[Unit]
+Description=Crina Space Backend (here.crina.at)
+After=network.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/workspace/test0607/here.crina.at/backend
+ExecStart=/root/workspace/test0607/here.crina.at/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --workers 1
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
