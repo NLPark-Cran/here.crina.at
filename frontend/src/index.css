@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  /* 暖纸底色与居民角色色 */
+  --color-cream: #FAF7F2;
+  --color-paper: #FFFDF9;
+  --color-warm-line: #EAE3D8;
+  --color-ink: #3B3A44;
+  --color-ink-soft: #6F6C79;
+  --color-crina: #8A8FC4;
+  --color-crina-deep: #6E74AE;
+  --color-anfeng: #B7423A;
+  --color-qiule: #C99A5B;
+  --color-xianmo: #3D4A6B;
+  --color-tuanman: #E88BA0;
+  --color-baixu: #7A9E8E;
+  --color-guagua: #9BB25F;
+
+  --font-serif: "Songti SC", "Noto Serif CJK SC", "Noto Serif SC", "SimSun", serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
+  --shadow-card: 0 1px 2px rgba(90, 80, 60, 0.05), 0 8px 24px rgba(90, 80, 60, 0.08);
+  --shadow-float: 0 4px 8px rgba(90, 80, 60, 0.06), 0 16px 40px rgba(90, 80, 60, 0.14);
+}
+
+html {
+  background-color: var(--color-cream);
+}
+
+body {
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 柔和渐变光斑背景 + 纸张感 */
+.room-bg {
+  background:
+    radial-gradient(42rem 30rem at 12% -6%, rgba(138, 143, 196, 0.16), transparent 60%),
+    radial-gradient(36rem 26rem at 96% 8%, rgba(201, 154, 91, 0.14), transparent 60%),
+    radial-gradient(30rem 30rem at 50% 110%, rgba(122, 158, 142, 0.12), transparent 60%),
+    var(--color-cream);
+}
+
+/* 纸张纹理（细颗粒噪点，用极淡的重复渐变模拟） */
+.paper-grain {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(120, 100, 70, 0.018) 0px,
+    rgba(120, 100, 70, 0.018) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+.font-title {
+  font-family: var(--font-serif);
+}
+
+/* 按钮按压回弹 */
+.btn-press {
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
+}
+.btn-press:active {
+  transform: scale(0.96);
+}
+
+/* 卡片 hover 轻浮动 */
+.card-hover {
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-float);
+}
+
+/* 打字机光标 */
+.typing-caret::after {
+  content: "▍";
+  margin-left: 1px;
+  opacity: 0.55;
+  animation: caret-blink 0.9s steps(1) infinite;
+}
+@keyframes caret-blink {
+  50% { opacity: 0; }
+}
+
+/* 信纸纹理 */
+.letter-paper {
+  background:
+    linear-gradient(rgba(201, 154, 91, 0.05), rgba(201, 154, 91, 0.05)),
+    repeating-linear-gradient(
+      transparent 0px,
+      transparent 30px,
+      rgba(138, 143, 196, 0.12) 30px,
+      rgba(138, 143, 196, 0.12) 31px
+    ),
+    var(--color-paper);
+}
+
+::selection {
+  background: rgba(138, 143, 196, 0.28);
+}
