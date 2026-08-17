@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { motion } from 'motion/react'
+import { motion, useScroll, useTransform } from 'motion/react'
 import { DoorOpen, Sparkles, MessageCircleHeart } from 'lucide-react'
 import { postsApi, probeImage, spaceApi } from '../api/client'
 import type { Character, Post } from '../api/types'
@@ -23,6 +23,16 @@ export function HomePage() {
   const [charsFailed, setCharsFailed] = useState(false)
   const [postsFailed, setPostsFailed] = useState(false)
 
+  // 滚动视差：场景随滚动轻微放大、上移，前景（文字/立绘）飘得更快一点
+  const heroRef = useRef<HTMLElement | null>(null)
+  const { scrollYProgress } = useScroll({
+    target: heroRef,
+    offset: ['start start', 'end start'],
+  })
+  const sceneScale = useTransform(scrollYProgress, [0, 1], [1, 1.08])
+  const sceneY = useTransform(scrollYProgress, [0, 1], ['0%', '10%'])
+  const fgY = useTransform(scrollYProgress, [0, 1], ['0%', '26%'])
+
   useEffect(() => {
     spaceApi
       .characters()
@@ -39,16 +49,18 @@ export function HomePage() {
   const crina = characters.find((c) => c.id === 'crina')
 
   return (
-    <div className="space-y-10">
-      {/* Hero */}
+    <div>
+      {/* Hero：步入小屋的整幅场景 */}
       <motion.section
-        {...fadeUp}
-        transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="relative overflow-hidden rounded-3xl border border-warm-line/60 shadow-card"
+        ref={heroRef}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.6, ease: 'easeOut' }}
+        className="relative left-1/2 -translate-x-1/2 -mt-6 w-screen h-[78vh] min-h-[540px] overflow-hidden"
       >
-        {/* 门厅氛围背景（视频优先，图片兑底，低透明度 + 柔光叠加保证文字可读） */}
-        {hasHallHero && (
-          <>
+        {/* 场景层：视频铺满 + 暖色 scrim（视差：随滚动轻微放大、上移） */}
+        <motion.div style={{ scale: sceneScale, y: sceneY }} className="absolute inset-0">
+          {hasHallHero ? (
             <video
               src="/assets/hall_ambience.mp4"
               poster="/assets/hall_hero.webp"
@@ -59,18 +71,41 @@ export function HomePage() {
               playsInline
               aria-hidden
               onError={(e) => {
-                // 视频缺失/加载失败时隐藏，由 poster 外的渐变背景免底，不露黑块
+                // 视频缺失/加载失败时隐藏，由暖色兑底渐变接管，不露黑块
                 e.currentTarget.style.display = 'none'
               }}
-              className="absolute inset-0 w-full h-full object-cover opacity-25 mix-blend-soft-light pointer-events-none select-none"
+              className="w-full h-full object-cover pointer-events-none select-none"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-cream/40 via-cream/70 to-cream pointer-events-none" />
-          </>
-        )}
-        <div className="relative flex flex-col md:flex-row items-center gap-6 md:gap-10 px-6 md:px-12 pt-8 md:pt-10 pb-8">
-          <div className="flex-1 text-center md:text-left order-2 md:order-1">
-            <h1 className="font-title text-4xl md:text-5xl tracking-wide">镜听空间</h1>
-            <p className="mt-3 text-ink-soft">{greeting()}</p>
+          ) : (
+            // 探测失败时的暖色兑底
+            <div
+              className="w-full h-full"
+              style={{
+                background:
+                  'radial-gradient(60rem 40rem at 75% 30%, rgba(138,143,196,0.35), transparent 65%), radial-gradient(50rem 36rem at 15% 75%, rgba(201,154,91,0.28), transparent 65%), var(--color-cream)',
+              }}
+            />
+          )}
+          {/* scrim：底部与左侧压暖，保证文字可读 */}
+          <div className="absolute inset-0 bg-gradient-to-t from-cream via-cream/45 to-cream/5 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-cream/85 via-cream/30 to-transparent pointer-events-none" />
+        </motion.div>
+
+        {/* 左侧文字：垂直居中偏下 */}
+        <motion.div
+          style={{ y: fgY }}
+          className="relative h-full max-w-5xl mx-auto px-6 flex items-end md:items-center"
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.15, ease: 'easeOut' }}
+            className="pb-24 md:pb-0 md:-mt-8 max-w-md"
+          >
+            <h1 className="font-title text-4xl md:text-6xl tracking-wide drop-shadow-[0_2px_12px_rgba(250,247,242,0.9)]">
+              镜听空间
+            </h1>
+            <p className="mt-3 text-ink-soft md:text-lg">{greeting()}</p>
             {user === null && (
               <Link
                 to="/login"
@@ -85,16 +120,25 @@ export function HomePage() {
                 {user.nickname}，你回来啦，拖鞋在门边。
               </p>
             )}
-          </div>
+          </motion.div>
+        </motion.div>
+
+        {/* crina 透明立绘：站在场景右侧、底部对齐，像在门口迎接 */}
+        <motion.div
+          style={{ y: fgY }}
+          className="absolute bottom-0 right-1 md:right-[6%] h-[40vh] md:h-[68vh] pointer-events-none"
+        >
+          {/* 脚下椭圆柔光 */}
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[78%] h-10 rounded-[50%] bg-crina/35 blur-2xl" />
           <motion.div
-            animate={{ y: [0, -8, 0] }}
-            transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-            className="order-1 md:order-2 shrink-0"
+            animate={{ y: [0, -9, 0] }}
+            transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
+            className="relative h-full"
           >
             <img
               src="/assets/crina_full.webp"
               alt={crina?.name ?? 'crina'}
-              className="h-56 md:h-72 w-auto object-contain drop-shadow-[0_12px_28px_rgba(138,143,196,0.35)]"
+              className="h-full w-auto object-contain drop-shadow-[0_18px_32px_rgba(61,74,107,0.35)]"
               onError={(e) => {
                 // 立绘不可用时回退到圆形头像占位
                 const el = e.currentTarget
@@ -102,7 +146,7 @@ export function HomePage() {
                 el.nextElementSibling?.classList.remove('hidden')
               }}
             />
-            <div className="hidden">
+            <div className="hidden absolute bottom-4 left-1/2 -translate-x-1/2">
               <CharacterAvatar
                 name={crina?.name ?? 'crina'}
                 color={crina?.color ?? '#8A8FC4'}
@@ -112,9 +156,11 @@ export function HomePage() {
               />
             </div>
           </motion.div>
-        </div>
+        </motion.div>
       </motion.section>
 
+      {/* 内容区：圆角卡片组从场景下缘滑进来，制造“往里走”的层次 */}
+      <div className="relative z-10 -mt-14 rounded-t-3xl bg-cream border-t border-warm-line/70 shadow-[0_-16px_40px_rgba(90,80,60,0.10)] px-1 md:px-2 pt-8 space-y-10">
       {/* 居民们在干嘛 */}
       <section>
         <motion.h2
@@ -228,6 +274,7 @@ export function HomePage() {
           </Link>
         </div>
       </section>
+      </div>
     </div>
   )
 }

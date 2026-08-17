@@ -5,16 +5,20 @@ import {
   BatteryCharging,
   CheckCircle2,
   ClipboardList,
+  File,
+  FileText,
+  FolderOpen,
   Hammer,
   Loader2,
   Pin,
   X,
   XCircle,
 } from 'lucide-react'
-import { agentApi, ApiError, streamTask } from '../api/client'
-import type { AgentTask, TaskStatus } from '../api/types'
+import { agentApi, ApiError, filesApi, streamTask } from '../api/client'
+import type { AgentTask, SpaceFile, TaskStatus } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { EmptyState } from '../components/EmptyState'
+import { Toast } from '../components/Toast'
 import { relativeTime } from '../lib/time'
 import { useAuth } from '../store/auth'
 
@@ -53,11 +57,29 @@ function BoardInner() {
   const [quotaHit, setQuotaHit] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [renovate, setRenovate] = useState(false)
+  const [toast, setToast] = useState('')
+  const [filesNonce, setFilesNonce] = useState(0)
+  /** 各任务上一次的状态，用于探测「刚刚交付」 */
+  const prevStatusRef = useRef<Map<string, TaskStatus> | null>(null)
 
   const load = useCallback(() => {
     agentApi
       .list()
-      .then((d) => setTasks(d.tasks))
+      .then((d) => {
+        const prev = prevStatusRef.current
+        if (prev) {
+          // 有任务刚从别的状态变成 done → 提示去文件空间验收
+          const justDone = d.tasks.some(
+            (t) => t.status === 'done' && prev.has(t.id) && prev.get(t.id) !== 'done',
+          )
+          if (justDone) {
+            setToast('交付啦——产出物已放进文件空间 ↓')
+            setFilesNonce((n) => n + 1)
+          }
+        }
+        prevStatusRef.current = new Map(d.tasks.map((t) => [t.id, t.status]))
+        setTasks(d.tasks)
+      })
       .catch(() => {})
       .finally(() => setLoaded(true))
   }, [])
@@ -90,6 +112,7 @@ function BoardInner() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      <Toast text={toast} onClose={() => setToast('')} />
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -217,7 +240,101 @@ function BoardInner() {
           />
         ))}
       </div>
+
+      {/* 我的文件空间 */}
+      <FileSpace nonce={filesNonce} />
     </div>
+  )
+}
+
+/** 人性化文件大小 */
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** 文件空间：委托产出物会出现在这里 */
+function FileSpace({ nonce }: { nonce: number }) {
+  const [files, setFiles] = useState<SpaceFile[]>([])
+  const [hint, setHint] = useState('')
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    filesApi
+      .list()
+      .then((d) => {
+        setFiles(d.files)
+        setHint(d.hint ?? '')
+      })
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [nonce])
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.15 }}
+      className="mt-8 bg-paper rounded-2xl shadow-card border border-warm-line p-5"
+    >
+      <h2 className="font-title text-lg flex items-center gap-2">
+        <FolderOpen className="w-5 h-5 text-baixu" />
+        文件空间
+      </h2>
+      <p className="mt-1 text-xs text-ink-soft">委托的产出物会放在这里，随取随走。</p>
+
+      <div className="mt-4">
+        {loaded && files.length === 0 && (
+          <p className="text-sm text-ink-soft text-center py-8 leading-relaxed">
+            {hint || '文件空间还空着——去委托板钉一张小纸条，产出物会出现在这里'}
+          </p>
+        )}
+        <div className="space-y-1">
+          {files.map((f) => {
+            const isImage = f.kind.startsWith('image/')
+            const isText = f.kind.startsWith('text/')
+            const url = filesApi.url(f.path)
+            return (
+              <a
+                key={f.path}
+                href={url}
+                download={f.name}
+                className="group flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-cream transition-colors"
+              >
+                {isImage ? (
+                  <img
+                    src={url}
+                    alt={f.name}
+                    loading="lazy"
+                    className="w-10 h-10 rounded-lg object-cover shrink-0 border border-warm-line"
+                  />
+                ) : (
+                  <span className="w-10 h-10 rounded-lg bg-cream border border-warm-line flex items-center justify-center shrink-0">
+                    {isText ? (
+                      <FileText className="w-4.5 h-4.5 text-xianmo" />
+                    ) : (
+                      <File className="w-4.5 h-4.5 text-ink-soft" />
+                    )}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm truncate group-hover:text-crina-deep transition-colors">
+                    {f.name}
+                  </div>
+                  <div className="text-xs text-ink-soft/80">
+                    {humanSize(f.size)} · {relativeTime(new Date(f.mtime * 1000).toISOString())}
+                  </div>
+                </div>
+                <span className="text-xs text-ink-soft/60 group-hover:text-crina-deep shrink-0">
+                  下载
+                </span>
+              </a>
+            )
+          })}
+        </div>
+      </div>
+    </motion.section>
   )
 }
 

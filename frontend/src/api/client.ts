@@ -8,6 +8,7 @@ import type {
   ConversationDetail,
   EmindImportResult,
   EmindStatus,
+  FilesResponse,
   GarbageItem,
   GoogleStatus,
   Letter,
@@ -228,6 +229,13 @@ export const byokApi = {
 export const importApi = {
   emindStatus: () => get<EmindStatus>('/api/import/emind/status'),
   emindImport: () => post<EmindImportResult>('/api/import/emind'),
+}
+
+// ---------- 文件空间 ----------
+export const filesApi = {
+  list: () => get<FilesResponse>('/api/files'),
+  /** 下载地址（同源 cookie 鉴权，直接 <a href download>） */
+  url: (path: string) => `/api/files/${path.split('/').map(encodeURIComponent).join('/')}`,
 }
 
 // ---------- 设置扩展（邮箱绑定 / 通知偏好） ----------

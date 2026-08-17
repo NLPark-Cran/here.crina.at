@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Compass,
   Loader2,
+  Package,
   Plus,
   SendHorizonal,
   Trash2,
@@ -54,7 +55,8 @@ function chatGreeting(): string {
 
 type ConvGroup = { label: string; items: Conversation[] }
 
-function groupConversations(convs: Conversation[]): ConvGroup[] {
+/** 未分组会话按时间分组；folder === 'emind' 的单独收走 */
+function groupConversations(convs: Conversation[]): { groups: ConvGroup[]; emind: Conversation[] } {
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const startOfYesterday = startOfToday - 86_400_000
@@ -63,13 +65,23 @@ function groupConversations(convs: Conversation[]): ConvGroup[] {
     { label: '昨天', items: [] },
     { label: '更早', items: [] },
   ]
+  const emind: Conversation[] = []
   for (const c of convs) {
+    if (c.folder === 'emind') {
+      emind.push(c)
+      continue
+    }
     const t = new Date(c.updated_at).getTime()
     if (t >= startOfToday) groups[0].items.push(c)
     else if (t >= startOfYesterday) groups[1].items.push(c)
     else groups[2].items.push(c)
   }
-  return groups.filter((g) => g.items.length > 0)
+  return { groups: groups.filter((g) => g.items.length > 0), emind }
+}
+
+/** 展示时去掉旧家搬运的 [emind] 前缀 */
+function displayTitle(c: Conversation, fallback: string): string {
+  return (c.title || fallback).replace(/^\[emind\]\s*/, '')
 }
 
 export function ChatPage() {
@@ -353,7 +365,47 @@ function ChatInner() {
   }
 
   const activeChar = active ? charMap.get(active.character_id) : undefined
-  const groups = groupConversations(conversations)
+  const { groups, emind } = groupConversations(conversations)
+  const [emindOpen, setEmindOpen] = useState(false)
+
+  const renderConvItem = (c: Conversation) => {
+    const ch = charMap.get(c.character_id)
+    return (
+      <div
+        key={c.id}
+        className={`group flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+          c.id === convId ? 'bg-crina/10' : 'hover:bg-cream'
+        }`}
+        onClick={() => navigate(`/chat/${c.id}`)}
+      >
+        <CharacterAvatar
+          name={ch?.name ?? c.character_id}
+          color={ch?.color}
+          avatarUrl={ch?.avatar_url || null}
+          size={34}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium truncate">
+            {displayTitle(c, `${ch?.name ?? c.character_id} 的小桌`)}
+          </div>
+          <div className="text-xs text-ink-soft truncate">
+            {c.last_message ??
+              `${MODES.find((m) => m.id === c.mode)?.label ?? c.mode} · ${relativeTime(c.updated_at)}`}
+          </div>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            void removeConversation(c.id)
+          }}
+          className="md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all shrink-0"
+          aria-label="删除会话"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="md:flex md:gap-5 md:h-[calc(100dvh-8.5rem)]">
@@ -385,46 +437,41 @@ function ChatInner() {
           {groups.map((g) => (
             <div key={g.label}>
               <div className="px-4 pt-3 pb-1 text-[11px] text-ink-soft/70 tracking-wide">{g.label}</div>
-              {g.items.map((c) => {
-                const ch = charMap.get(c.character_id)
-                return (
-                  <div
-                    key={c.id}
-                    className={`group flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
-                      c.id === convId ? 'bg-crina/10' : 'hover:bg-cream'
-                    }`}
-                    onClick={() => navigate(`/chat/${c.id}`)}
-                  >
-                    <CharacterAvatar
-                      name={ch?.name ?? c.character_id}
-                      color={ch?.color}
-                      avatarUrl={ch?.avatar_url || null}
-                      size={34}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">
-                        {c.title || `${ch?.name ?? c.character_id} 的小桌`}
-                      </div>
-                      <div className="text-xs text-ink-soft truncate">
-                        {c.last_message ??
-                          `${MODES.find((m) => m.id === c.mode)?.label ?? c.mode} · ${relativeTime(c.updated_at)}`}
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void removeConversation(c.id)
-                      }}
-                      className="md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all shrink-0"
-                      aria-label="删除会话"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )
-              })}
+              {g.items.map((c) => renderConvItem(c))}
             </div>
           ))}
+
+          {/* 旧家搬运（emind）折叠组 */}
+          {emind.length > 0 && (
+            <div className="mt-2 border-t border-warm-line/70">
+              <button
+                onClick={() => setEmindOpen((v) => !v)}
+                className="w-full flex items-center gap-2 px-4 py-3 text-xs text-ink-soft hover:text-ink transition-colors"
+              >
+                <Package className="w-3.5 h-3.5 text-qiule" />
+                旧家搬运（emind）
+                <span className="px-1.5 py-0.5 rounded-full bg-qiule/15 text-qiule text-[10px]">
+                  {emind.length}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 ml-auto transition-transform ${emindOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+              <AnimatePresence initial={false}>
+                {emindOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="overflow-hidden"
+                  >
+                    {emind.map((c) => renderConvItem(c))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
           <div className="h-2" />
         </div>
       </aside>

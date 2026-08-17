@@ -68,6 +68,8 @@ export interface Conversation {
   mode: ChatMode
   title: string | null
   updated_at: string
+  /** "" = 未分组；"emind" = 旧家导入 */
+  folder?: string
   /** 后端暂未返回，预留：最后一条消息预览 */
   last_message?: string | null
 }
@@ -208,4 +210,20 @@ export interface WardrobeData {
   balance: number
   items: WardrobeItem[]
   ledger: LedgerEntry[]
+}
+
+// ---------- 文件空间 ----------
+export interface SpaceFile {
+  path: string
+  name: string
+  size: number
+  /** Unix 秒级时间戳 */
+  mtime: number
+  /** MIME 类型，如 image/png、text/markdown；未知为 "file" */
+  kind: string
+}
+
+export interface FilesResponse {
+  files: SpaceFile[]
+  hint?: string
 }
