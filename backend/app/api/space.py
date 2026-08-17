@@ -48,9 +48,10 @@ async def presence(db: AsyncSession = Depends(get_db)):
     r = get_redis()
     chars = (await db.execute(select(Character).where(Character.active == True))).scalars().all()  # noqa: E712
     hour = datetime.now(CST).hour
+    keys = [f"presence:{c.id}" for c in chars]
+    values = await r.mget(keys) if keys else []
     out = {}
-    for c in chars:
-        status = await r.get(f"presence:{c.id}")
+    for c, status in zip(chars, values):
         if not status:
             options = DEFAULT_STATUS.get(c.id, ["在空间里待着"])
             # 夜行者白天睡觉

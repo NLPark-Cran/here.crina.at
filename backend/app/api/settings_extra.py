@@ -1,8 +1,8 @@
 """设置扩展：自建邮箱绑定（观猹未绑邮箱也能收信）"""
 from __future__ import annotations
 
-import random
 import re
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -38,7 +38,7 @@ async def send_code(body: SendCode, user: User = Depends(get_current_user), db: 
     r = get_redis()
     if await r.get(f"email:rl:{user.id}"):
         raise HTTPException(429, "验证码刚发过一封，去邮箱看看吧（一分钟内只能发一次）")
-    code = f"{random.randint(0, 999999):06d}"
+    code = f"{secrets.randbelow(1000000):06d}"
     await r.setex(f"email:code:{user.id}", 600, f"{email}|{code}")
     await r.setex(f"email:rl:{user.id}", 60, "1")
     ok = await mailer.send_mail(
@@ -58,8 +58,14 @@ async def verify_code(body: VerifyCode, user: User = Depends(get_current_user), 
     cached = await r.get(f"email:code:{user.id}")
     if not cached:
         raise HTTPException(400, "验证码过期了，重新发一封吧")
+    # 防爆破：错 5 次作废
+    fails = await r.incr(f"email:fails:{user.id}")
+    await r.expire(f"email:fails:{user.id}", 600)
+    if fails > 5:
+        await r.delete(f"email:code:{user.id}")
+        raise HTTPException(400, "错太多次啦，这张验证码作废，重新发一封吧")
     email, code = cached.split("|", 1)
-    if body.code.strip() != code or body.email.strip().lower() != email:
+    if not secrets.compare_digest(body.code.strip(), code) or body.email.strip().lower() != email:
         raise HTTPException(400, "验证码对不上，再看看？")
     user.email = email
     await db.commit()

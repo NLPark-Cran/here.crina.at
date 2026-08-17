@@ -69,11 +69,14 @@ async def _gen_image(prompt: str, ref_path: Path | None = None) -> bytes | None:
 
 
 async def buy(db: AsyncSession, kind: str, hint: str, by_nickname: str) -> WardrobeItem | None:
-    """购置一件装扮/摆件：构思 → 扣款 → 生图 → 入库 → 客厅炫耀"""
+    """购置一件装扮/摆件：先扣款（防双花） → 构思 → 生图 → 入库 → 客厅炫耀"""
     from . import tokendance
-    balance = await get_balance(db)
     cost = OUTFIT_COST if kind == "outfit" else DECOR_COST
-    if balance < cost:
+    # 先插负流水并校验余额，不够则回滚
+    db.add(PurseLedger(delta=-cost, reason="（预付购置款）"))
+    await db.flush()
+    if await get_balance(db) < 0:
+        await db.rollback()
         return None
 
     # 让 crina 自己构思要买什么
@@ -103,11 +106,22 @@ async def buy(db: AsyncSession, kind: str, hint: str, by_nickname: str) -> Wardr
 
     image = await _gen_image(prompt, ref)
     if not image:
+        # 生图失败：退回预付
+        db.add(PurseLedger(delta=cost, reason="（购置失败退回）"))
+        await db.commit()
         return None
 
     item_id = uuid.uuid4()
-    fname = f"wardrobe_{item_id.hex[:12]}.png"
-    (ASSETS / fname).write_bytes(image)
+    fname = f"wardrobe_{item_id.hex[:12]}.webp"
+    try:
+        import io
+        from PIL import Image
+        img = Image.open(io.BytesIO(image)).convert("RGB")
+        img.thumbnail((900, 1200), Image.LANCZOS)
+        img.save(ASSETS / fname, "WEBP", quality=82)
+    except Exception:
+        fname = f"wardrobe_{item_id.hex[:12]}.png"
+        (ASSETS / fname).write_bytes(image)
 
     # 装扮自动穿上（换装）
     if kind == "outfit":
@@ -118,7 +132,12 @@ async def buy(db: AsyncSession, kind: str, hint: str, by_nickname: str) -> Wardr
                         image_url=f"/assets/{fname}", cost=cost,
                         note=plan.get("reason", "")[:200], wearing=(kind == "outfit"))
     db.add(item)
-    db.add(PurseLedger(delta=-cost, reason=f"购置「{plan['title'][:40]}」"))
+    # 预付款转正（更新流水备注）
+    prepaid = (await db.execute(
+        select(PurseLedger).where(PurseLedger.reason == "（预付购置款）")
+        .order_by(PurseLedger.created_at.desc()).limit(1)
+    )).scalar_one()
+    prepaid.reason = f"购置「{plan['title'][:40]}」"
     # 客厅炫耀
     db.add(Post(author_type="character", author_id="crina",
                 content=f"{'收到' if by_nickname else '新入手'}「{plan['title']}」！{plan.get('reason', '')}",

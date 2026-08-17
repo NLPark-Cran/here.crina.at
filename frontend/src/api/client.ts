@@ -117,27 +117,35 @@ async function readSseStream<T>(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  const separator = /\r?\n\r?\n/
+
+  const handleEvent = (rawEvent: string) => {
+    for (const line of rawEvent.split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload) continue
+      try {
+        onEvent(JSON.parse(payload) as T)
+      } catch {
+        /* 跳过无法解析的行 */
+      }
+    }
+  }
+
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    // SSE 事件以空行分隔
-    let sep: number
-    while ((sep = buffer.indexOf('\n\n')) !== -1) {
-      const rawEvent = buffer.slice(0, sep)
-      buffer = buffer.slice(sep + 2)
-      for (const line of rawEvent.split('\n')) {
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload) continue
-        try {
-          onEvent(JSON.parse(payload) as T)
-        } catch {
-          /* 跳过无法解析的行 */
-        }
-      }
+    // SSE 事件以空行分隔（兼容 \n\n 与 \r\n\r\n）
+    let match: RegExpExecArray | null
+    while ((match = separator.exec(buffer))) {
+      handleEvent(buffer.slice(0, match.index))
+      buffer = buffer.slice(match.index + match[0].length)
     }
   }
+  // 冲刷解码器并处理流末尾没有空行结尾的残余事件
+  buffer += decoder.decode()
+  if (buffer.trim()) handleEvent(buffer)
 }
 
 /**

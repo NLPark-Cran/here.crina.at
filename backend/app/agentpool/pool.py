@@ -53,7 +53,11 @@ async def get_task_api_key(db, user: User) -> str | None:
 def subscribe(task_id: str) -> asyncio.Queue:
     q: asyncio.Queue = asyncio.Queue()
     state = _live.setdefault(task_id, {"queues": set(), "done": False})
-    state["queues"].add(q)
+    if state["done"]:
+        # 已完成：立即补发 closed，避免订阅者空等
+        q.put_nowait({"type": "closed"})
+    else:
+        state["queues"].add(q)
     return q
 
 
@@ -119,6 +123,13 @@ async def execute_task(task_id: str):
         finally:
             _live[task_id]["done"] = True
             await _broadcast(task_id, {"type": "closed"})
+            # 延时清理登记表，防内存缓涨
+            async def _gc():
+                await asyncio.sleep(300)
+                state = _live.get(task_id)
+                if state and not state["queues"]:
+                    _live.pop(task_id, None)
+            asyncio.create_task(_gc())
 
         # 装修任务完成后自动构建上线
         if target == "renovate" and status == "done":

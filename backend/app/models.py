@@ -144,7 +144,7 @@ class Event(Base):
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     remind_minutes: Mapped[int] = mapped_column(Integer, default=60)
-    reminded: Mapped[bool] = mapped_column(Boolean, default=False)
+    reminded: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     source: Mapped[str] = mapped_column(String(16), default="manual")  # manual / crina / import / google
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

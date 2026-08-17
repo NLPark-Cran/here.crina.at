@@ -16,13 +16,25 @@ HOT_MEMORY_LIMIT = 12
 CST = timezone(timedelta(hours=8))
 
 
+# SOUL 前缀缓存（WORLD+人设是不变的大字符串，按 character+是否站主缓存）
+_SOUL_CACHE: dict[tuple[str, bool], str] = {}
+
+
+def _soul_block(character: Character, is_owner: bool) -> str:
+    key = (character.id, is_owner)
+    if key not in _SOUL_CACHE:
+        soul = character.soul_public
+        if is_owner and character.soul_private:
+            soul += "\n\n" + character.soul_private
+        _SOUL_CACHE[key] = f"{WORLD}\n\n{soul}"
+    return _SOUL_CACHE[key]
+
+
 async def build_context(db: AsyncSession, user: User, character: Character,
                         conversation: Conversation, mode: str) -> list[dict]:
     """组装分层上下文"""
     now = datetime.now(CST)
-    soul = character.soul_public
-    if user.is_owner and character.soul_private:
-        soul += "\n\n" + character.soul_private
+    soul_block = _soul_block(character, user.is_owner)
 
     # 热记忆（按重要性）
     mems = (await db.execute(
@@ -40,9 +52,7 @@ async def build_context(db: AsyncSession, user: User, character: Character,
 
     mode_prompt = MODE_PROMPTS.get(mode, "")
 
-    system = f"""{WORLD}
-
-{soul}
+    system = f"""{soul_block}
 
 # 当前情境
 - 现在时间：{now.strftime('%Y年%m月%d日 %H:%M')}（{'凌晨' if now.hour < 6 else '上午' if now.hour < 12 else '下午' if now.hour < 18 else '晚上'}）

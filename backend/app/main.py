@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .agentpool import proxy as agent_proxy
 from .api import agent, auth, byok, chat, importer, letters, posts, settings_extra, space, wardrobe
 from .config import get_settings
 
@@ -18,6 +19,14 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     yield
     stop_scheduler()
+    # 释放连接
+    from .cache import get_redis
+    from .db import engine
+    try:
+        await get_redis().aclose()
+    except Exception:
+        pass
+    await engine.dispose()
 
 
 app = FastAPI(title="镜听空间", version="0.2.0", lifespan=lifespan)
@@ -40,6 +49,7 @@ app.include_router(agent.router, prefix=settings.api_prefix)
 app.include_router(importer.router, prefix=settings.api_prefix)
 app.include_router(settings_extra.router, prefix=settings.api_prefix)
 app.include_router(wardrobe.router, prefix=settings.api_prefix)
+app.include_router(agent_proxy.router)  # /px/<token>/v1/... 任务级词元代理
 
 
 @app.get("/api/health")

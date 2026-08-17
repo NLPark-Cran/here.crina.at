@@ -55,14 +55,19 @@ async def list_conversations(user: User = Depends(get_current_user), db: AsyncSe
         select(Conversation).where(Conversation.user_id == user.id)
         .order_by(desc(Conversation.updated_at)).limit(50)
     )).scalars().all()
-    out = []
-    for c in rows:
-        last = (await db.execute(
-            select(Message).where(Message.conversation_id == c.id)
-            .order_by(desc(Message.created_at)).limit(1)
-        )).scalar_one_or_none()
-        out.append({**conv_out(c), "last_message": (last.content[:40] if last else None)})
-    return {"conversations": out}
+    # 单查询取每个会话的最后一条消息（去重窗口）
+    if rows:
+        from sqlalchemy import func, over
+        rn = over(func.row_number(), partition_by=Message.conversation_id,
+                  order_by=desc(Message.created_at)).label("rn")
+        sub = select(Message.conversation_id, Message.content, rn).subquery()
+        lasts = (await db.execute(
+            select(sub.c.conversation_id, sub.c.content).where(sub.c.rn == 1)
+        )).all()
+        last_map = {str(cid): content[:40] for cid, content in lasts}
+    else:
+        last_map = {}
+    return {"conversations": [{**conv_out(c), "last_message": last_map.get(str(c.id))} for c in rows]}
 
 
 @router.get("/conversations/{conv_id}")

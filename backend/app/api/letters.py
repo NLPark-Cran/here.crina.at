@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid as _uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -26,7 +26,9 @@ async def list_letters(user: User = Depends(get_current_user), db: AsyncSession 
     rows = (await db.execute(
         select(Letter).where(Letter.user_id == user.id).order_by(desc(Letter.created_at)).limit(50)
     )).scalars().all()
-    chars = {c.id: c for c in (await db.execute(select(Character))).scalars().all()}
+    chars = {c.id: c for c in (await db.execute(
+        select(Character).with_entities(Character.id, Character.name, Character.color)
+    ))}
     return {"letters": [
         {"id": str(l.id), "character": {"id": l.character_id, "name": chars[l.character_id].name if l.character_id in chars else l.character_id,
                                         "color": chars[l.character_id].color if l.character_id in chars else "#999"},
@@ -85,12 +87,26 @@ async def send_letter(body: SendLetter, user: User = Depends(get_current_user), 
 
 
 # ---------- 日历 ----------
+CST = timezone(timedelta(hours=8))
+
+
 class CreateEvent(BaseModel):
     title: str = Field(min_length=1, max_length=128)
     description: str = ""
     start_at: datetime
     end_at: datetime | None = None
     remind_minutes: int = 60
+
+    @classmethod
+    def _naive_as_cst(cls, dt: datetime | None) -> datetime | None:
+        """naive 时间一律按 CST（+8）解释"""
+        if dt is not None and dt.tzinfo is None:
+            return dt.replace(tzinfo=CST)
+        return dt
+
+    def model_post_init(self, __context):
+        self.start_at = self._naive_as_cst(self.start_at)
+        self.end_at = self._naive_as_cst(self.end_at)
 
 
 @router.get("/events")
@@ -186,13 +202,22 @@ async def delete_memory(memory_id: str, user: User = Depends(get_current_user), 
 
 # ---------- 档案馆 · 探讨沉淀 ----------
 @router.get("/wiki")
-async def list_wiki(db: AsyncSession = Depends(get_db)):
+async def list_wiki(request: Request, db: AsyncSession = Depends(get_db)):
+    """未登录只看公开页；登录后可看自己的私密沉淀"""
+    from ..security import get_current_user_optional
+    user = await get_current_user_optional(request, db)
+    if user:
+        from sqlalchemy import or_
+        cond = or_(WikiPage.public == True, WikiPage.user_id == user.id)  # noqa: E712
+    else:
+        cond = WikiPage.public == True  # noqa: E712
     rows = (await db.execute(
-        select(WikiPage).order_by(desc(WikiPage.created_at)).limit(50)
+        select(WikiPage).where(cond).order_by(desc(WikiPage.created_at)).limit(50)
     )).scalars().all()
     return {"pages": [
         {"id": str(w.id), "title": w.title, "content": w.content, "mode": w.mode,
-         "public": w.public, "created_at": w.created_at.isoformat()}
+         "public": w.public, "mine": bool(user and w.user_id == user.id),
+         "created_at": w.created_at.isoformat()}
         for w in rows
     ]}
 
@@ -221,8 +246,10 @@ async def extract_wiki(body: ExtractWiki, user: User = Depends(get_current_user)
 {dialogue[:4000]}"""
     try:
         content = await tokendance.chat_once([{"role": "user", "content": prompt}], temperature=0.6, max_tokens=1200)
-    except Exception as e:
-        raise HTTPException(503, f"萃取失败：{e}")
+    except Exception:
+        import logging
+        logging.getLogger("crina.wiki").exception("萃取失败")
+        raise HTTPException(503, "萃取没能完成，让 crina 歇口气再试一次吧")
     title = body.title or (content.split("\n")[0].lstrip("# ").strip()[:60] if content else "未命名沉淀")
     page = WikiPage(user_id=user.id, title=title, content=content, mode=conv.mode,
                     source_conversation_id=conv.id, public=body.public)

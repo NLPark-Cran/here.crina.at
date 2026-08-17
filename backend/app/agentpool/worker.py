@@ -25,14 +25,15 @@ SANDBOX_AGENTS_MD = """# 你是 crina（干活形态）
 - 完成后用温暖简短的口吻汇报：做了什么、产出文件在哪里。别太正式，像朋友交付成果。
 """
 
+# 真实 Key 不落盘：worker 只拿到任务级代理 URL（见 agentpool/proxy.py）
 CONFIG_TEMPLATE = """default_model = "qwen38"
 default_yolo = true
 telemetry = false
 
 [providers.tokendance]
 type = "openai_legacy"
-base_url = "{base_url}"
-api_key = "{api_key}"
+base_url = "{proxy_base}"
+api_key = "px-task-key"
 
 [models.qwen38]
 provider = "tokendance"
@@ -57,14 +58,14 @@ RENOVATE_AGENTS_MD = """# 你是 crina（空间装修形态）
 """
 
 
-def ensure_user_sandbox(user_id: uuid.UUID, api_key: str) -> Path:
-    """准备每用户沙箱与 provider 配置"""
+def ensure_user_sandbox(user_id: uuid.UUID, proxy_base: str) -> Path:
+    """准备每用户沙箱与 provider 配置（仅含代理 URL，无真实 Key）"""
     root = Path(settings.agent_work_root) / str(user_id)
     sandbox = root / "sandbox"
     sandbox.mkdir(parents=True, exist_ok=True)
     (sandbox / "AGENTS.md").write_text(SANDBOX_AGENTS_MD, encoding="utf-8")
     (root / "kimi.toml").write_text(CONFIG_TEMPLATE.format(
-        base_url=settings.tokendance_base_url, api_key=api_key, model=settings.chat_model,
+        proxy_base=proxy_base, model=settings.chat_model,
     ), encoding="utf-8")
     (root / "tasks").mkdir(exist_ok=True)
     return sandbox
@@ -76,12 +77,17 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent.parent / "frontend"
 async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
                    target: str = "sandbox") -> AsyncGenerator[dict, None]:
     """驱动一个委托任务，产出翻译后的事件流"""
+    from . import proxy
+    px_token = await proxy.issue_token(api_key)
+    proxy_base = f"http://127.0.0.1:8010/px/{px_token}/v1"
     if target == "renovate":
         sandbox = FRONTEND_DIR
-        (sandbox / "AGENTS.md").write_text(RENOVATE_AGENTS_MD, encoding="utf-8")
-        ensure_user_sandbox(user_id, api_key)  # 只为生成 kimi.toml
+        kimi_dir = sandbox / ".kimi"
+        kimi_dir.mkdir(exist_ok=True)
+        (kimi_dir / "AGENTS.md").write_text(RENOVATE_AGENTS_MD, encoding="utf-8")
+        ensure_user_sandbox(user_id, proxy_base)  # 只为生成 kimi.toml
     else:
-        sandbox = ensure_user_sandbox(user_id, api_key)
+        sandbox = ensure_user_sandbox(user_id, proxy_base)
     proc = await asyncio.create_subprocess_exec(
         settings.kimi_bin, "--wire", "-w", str(sandbox),
         "--config-file", str(sandbox.parent / "kimi.toml"),
@@ -154,9 +160,8 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
                        "ok": not rv.get("is_error"),
                        "message": (rv.get("message") or "")[:200]}
             elif ptype == "ApprovalRequest":
-                # yolo 模式一般不会来；兜底拒绝危险审批
-                if msg.get("id"):
-                    await send("__respond", None, None)  # 占位，不应到达
+                # yolo 模式一般不会来；不做响应（超时自然失败）
+                pass
             elif ptype == "TurnEnd":
                 pass
     finally:
@@ -165,3 +170,4 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
         except ProcessLookupError:
             pass
         await proc.wait()
+        await proxy.burn_token(px_token)

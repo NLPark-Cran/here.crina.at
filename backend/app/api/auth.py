@@ -52,7 +52,8 @@ async def watcha_callback(code: str | None = None, state: str | None = None,
                           error: str | None = None, error_description: str | None = None,
                           db: AsyncSession = Depends(get_db)):
     if error:
-        return RedirectResponse(f"/login?error={error_description or error}")
+        from urllib.parse import quote
+        return RedirectResponse(f"/login?error={quote(error_description or error)}")
     if not code or not state:
         raise HTTPException(400, "缺少 code/state")
     r = get_redis()
@@ -121,7 +122,8 @@ async def watcha_callback(code: str | None = None, state: str | None = None,
                             scopes=token_data.get("scope", "")))
     await db.commit()
 
-    resp = RedirectResponse(next_url if next_url.startswith("/") else "/")
+    safe_next = next_url if (next_url.startswith("/") and not next_url.startswith("//")) else "/"
+    resp = RedirectResponse(safe_next)
     resp.set_cookie(COOKIE_NAME, create_session_token(user.id),
                     max_age=settings.jwt_expire_days * 86400,
                     httponly=True, secure=True, samesite="lax", path="/")

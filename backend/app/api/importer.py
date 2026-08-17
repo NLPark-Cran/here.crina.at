@@ -43,9 +43,9 @@ async def emind_status(user: User = Depends(get_current_user)):
                                        {"u": u.id})).scalar()
             return {"available": True, "emind_name": u.name,
                     "conversations": convs, "messages": msgs, "memories": mems}
-    except Exception as e:
+    except Exception:
         log.exception("emind 状态检查失败")
-        return {"available": False, "reason": f"连不上旧家：{str(e)[:100]}"}
+        return {"available": False, "reason": "连不上旧家，稍后再试试"}
     finally:
         await engine.dispose()
 
@@ -57,6 +57,12 @@ KIND_MAP = {"fact": "fact", "preference": "preference", "summary": "summary"}
 async def emind_import(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user.email:
         raise HTTPException(400, "你的观猹账号还没绑定邮箱，无法和 emind 账号对上")
+    # 幂等 + 冷却：30 分钟内只能搬一次
+    from ..cache import get_redis
+    r = get_redis()
+    if await r.get(f"import:emind:{user.id}"):
+        raise HTTPException(429, "刚搬完一波，歇 30 分钟再搬（重复对话不会重复入库，放心）")
+    await r.setex(f"import:emind:{user.id}", 1800, "1")
     engine = create_async_engine(EMIND_URL, pool_size=2)
     imported = {"conversations": 0, "messages": 0, "memories": 0}
     try:
@@ -86,8 +92,15 @@ async def emind_import(user: User = Depends(get_current_user), db: AsyncSession 
                 "SELECT id, title, created_at FROM conversations WHERE user_id = :u ORDER BY created_at"),
                 {"u": u.id})).all()
             for c in convs:
+                title = f"[emind] {c.title or '未命名对话'}"[:128]
+                # 幂等：同名导入会话已存在则跳过
+                dup = (await db.execute(
+                    text("SELECT 1 FROM conversations WHERE user_id = :u AND title = :t"),
+                    {"u": user.id, "t": title})).first()
+                if dup:
+                    continue
                 new_conv = Conversation(user_id=user.id, character_id="crina", mode="auto",
-                                        title=f"[emind] {c.title or '未命名对话'}"[:128])
+                                        title=title)
                 db.add(new_conv)
                 await db.flush()
                 msgs = (await conn.execute(text(
@@ -108,10 +121,10 @@ async def emind_import(user: User = Depends(get_current_user), db: AsyncSession 
         await db.commit()
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
         log.exception("emind 导入失败")
-        raise HTTPException(500, f"导入失败：{str(e)[:150]}")
+        raise HTTPException(500, "搬家车半路熄火了，稍后再试一次吧")
     finally:
         await engine.dispose()
     return {"ok": True, "imported": imported,

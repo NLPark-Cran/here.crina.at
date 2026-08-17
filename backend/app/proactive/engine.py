@@ -151,8 +151,11 @@ async def job_greet(period: str):
 async def job_remind():
     """事件提醒：到点未提醒的 → 站内信 + 邮件"""
     now = datetime.now(timezone.utc)
+    horizon = now + timedelta(days=2)  # 只看两天内的，避免全表扫
     async with SessionLocal() as db:
-        events = (await db.execute(select(Event).where(Event.reminded == False))).scalars().all()  # noqa: E712
+        events = (await db.execute(
+            select(Event).where(Event.reminded == False, Event.start_at <= horizon).limit(200)  # noqa: E712
+        )).scalars().all()
         for ev in events:
             start = ev.start_at
             if start.tzinfo is None:

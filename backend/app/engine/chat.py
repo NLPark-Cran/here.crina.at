@@ -37,23 +37,22 @@ async def get_user_api_key(db: AsyncSession, user: User, kind: str) -> tuple[str
 
 
 async def check_and_count_quota(db: AsyncSession, user: User, kind: str, is_byok: bool) -> None:
-    """站点额度用户计配额；BYOK 不限"""
+    """站点额度用户计配额（原子自增防并发绕过）；BYOK 与站主不限"""
     if is_byok or user.is_owner:
         return
     limits = {"chat": settings.quota_chat_per_day, "agent": settings.quota_agent_per_day,
               "tts": settings.quota_tts_per_day}
     today = date.today()
-    row = (await db.execute(
-        select(UsageCounter).where(UsageCounter.user_id == user.id,
-                                   UsageCounter.day == today, UsageCounter.kind == kind)
-    )).scalar_one_or_none()
-    if row and row.count >= limits.get(kind, 50):
-        raise QuotaExceeded(kind)
-    if row:
-        row.count += 1
-    else:
-        db.add(UsageCounter(user_id=user.id, day=today, kind=kind, count=1))
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    stmt = pg_insert(UsageCounter).values(user_id=user.id, day=today, kind=kind, count=1)
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_usage",
+        set_={"count": UsageCounter.count + 1},
+    ).returning(UsageCounter.count)
+    count = (await db.execute(stmt)).scalar_one()
     await db.commit()
+    if count > limits.get(kind, 50):
+        raise QuotaExceeded(kind)
 
 
 class QuotaExceeded(Exception):
