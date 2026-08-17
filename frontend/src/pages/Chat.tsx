@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
@@ -100,6 +100,9 @@ function ChatInner() {
   const [newDraft, setNewDraft] = useState('')
   const [creating, setCreating] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  /** 用户是否贴着消息流底部（贴底才自动跟滚） */
+  const pinnedRef = useRef(true)
   const abortRef = useRef<AbortController | null>(null)
   const pendingFirstRef = useRef<string | null>(null)
 
@@ -128,9 +131,21 @@ function ChatInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state])
 
+  // toast 自动消失（卸载清理）
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(''), 6000)
+    return () => clearTimeout(t)
+  }, [toast])
+
   const sendTo = useCallback(
     async (conv: Conversation, content: string) => {
-      if (!content || streaming) return
+      if (!content) return
+      if (streaming) {
+        // 上一段还在流式输出，这次发送（含 pendingFirst）不能静默丢弃
+        setToast('上一段还没说完，等一等哦')
+        return
+      }
       setError('')
       const optimistic: ChatMessage = {
         id: `local-${Date.now()}`,
@@ -146,45 +161,64 @@ function ChatInner() {
       const ctrl = new AbortController()
       abortRef.current = ctrl
 
+      // delta 按 50ms 节流合批：字符先进缓冲区，到点一次性 flush，减少 setState 次数
+      let deltaBuf = ''
+      let lastSpeaker: StreamBubble = {
+        character: 'crina',
+        name: charMap.get('crina')?.name ?? 'crina',
+        color: charMap.get('crina')?.color ?? '#8A8FC4',
+        avatarUrl: charMap.get('crina')?.avatar_url ?? '',
+        text: '',
+      }
+      const flushDelta = () => {
+        if (!deltaBuf) return
+        const text = deltaBuf
+        deltaBuf = ''
+        setStreamBubbles((b) => {
+          if (b.length === 0) return [{ ...lastSpeaker, text }]
+          const next = [...b]
+          next[next.length - 1] = { ...next[next.length - 1], text: next[next.length - 1].text + text }
+          return next
+        })
+      }
+      const flushTimer = setInterval(flushDelta, 50)
+
       await streamChatMessage(
         conv.id,
         content,
         (ev) => {
           if (ev.type === 'speaker') {
-            setStreamBubbles((b) => [
-              ...b,
-              { character: ev.character, name: ev.name, color: ev.color, avatarUrl: ev.avatar_url, text: '' },
-            ])
+            flushDelta()
+            lastSpeaker = {
+              character: ev.character,
+              name: ev.name,
+              color: ev.color,
+              avatarUrl: ev.avatar_url,
+              text: '',
+            }
+            setStreamBubbles((b) => [...b, { ...lastSpeaker }])
           } else if (ev.type === 'delta') {
-            setStreamBubbles((b) => {
-              if (b.length === 0) {
-                const c = charMap.get(ev.character)
-                return [
-                  {
-                    character: ev.character,
-                    name: c?.name ?? ev.character,
-                    color: c?.color ?? '#8A8FC4',
-                    avatarUrl: c?.avatar_url ?? '',
-                    text: ev.text,
-                  },
-                ]
-              }
-              const next = [...b]
-              next[next.length - 1] = { ...next[next.length - 1], text: next[next.length - 1].text + ev.text }
-              return next
-            })
+            deltaBuf += ev.text
           } else if (ev.type === 'error') {
             setError(ev.message)
           }
         },
         ctrl.signal,
       ).catch((e) => {
-        if (e instanceof Error && e.name !== 'AbortError') {
+        if (!ctrl.signal.aborted && e instanceof Error && e.name !== 'AbortError') {
           setError(e instanceof ApiError ? e.message : '话说到一半断了，再发一次试试？')
         }
       })
+      clearInterval(flushTimer)
+      flushDelta()
 
-      // 流结束：把气泡固化进消息列表，并刷新会话列表
+      // 竞态防护：流被切换会话打断时，不把半截气泡固化进新会话
+      if (ctrl.signal.aborted || abortRef.current !== ctrl) {
+        setStreamBubbles([])
+        return
+      }
+
+      // 流正常结束：把气泡固化进消息列表，并刷新会话列表
       setStreamBubbles((bubbles) => {
         const fixed: ChatMessage[] = bubbles
           .filter((b) => b.text.trim())
@@ -211,12 +245,16 @@ function ChatInner() {
       setMessages([])
       return
     }
+    // 陈旧请求防护：快速连点会话时，后到的旧响应不得覆盖新会话
+    let stale = false
     abortRef.current?.abort()
     setStreamBubbles([])
     setStreaming(false)
+    pinnedRef.current = true
     chatApi
       .detail(convId)
       .then((d) => {
+        if (stale) return
         setActive(d)
         setMessages(d.messages)
         if (pendingFirstRef.current) {
@@ -226,18 +264,33 @@ function ChatInner() {
         }
       })
       .catch((e) => {
-        if (e instanceof ApiError && e.status === 404) navigate('/chat', { replace: true })
+        if (stale) return
+        if (e instanceof ApiError && e.status === 404) {
+          navigate('/chat', { replace: true })
+        } else {
+          setError('网络打了个盹，刷新试试')
+        }
       })
+    return () => {
+      stale = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId])
 
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // 仅当用户本来贴着底部时才跟滚；流式刷新用 instant 避免动画堆积
+    if (!pinnedRef.current) return
+    bottomRef.current?.scrollIntoView({ behavior: 'instant' })
   }, [messages, streamBubbles])
 
   const showToast = (text: string) => {
     setToast(text)
-    setTimeout(() => setToast(''), 6000)
   }
 
   /** 问候输入框：开新会话并带上第一句话 */
@@ -362,7 +415,7 @@ function ChatInner() {
                         e.stopPropagation()
                         void removeConversation(c.id)
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all shrink-0"
+                      className="md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all shrink-0"
                       aria-label="删除会话"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -433,7 +486,7 @@ function ChatInner() {
             </div>
 
             {/* 消息流 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.length === 0 && streamBubbles.length === 0 && (
                 <p className="text-center text-sm text-ink-soft py-10">桌上还空着，说第一句话吧。</p>
               )}
@@ -702,7 +755,7 @@ function ModeDropdown({
   )
 }
 
-function UserBubble({ content }: { content: string }) {
+const UserBubble = memo(function UserBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] bg-crina text-white rounded-2xl rounded-tr-md px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap shadow-sm">
@@ -710,9 +763,9 @@ function UserBubble({ content }: { content: string }) {
       </div>
     </div>
   )
-}
+})
 
-function CharacterBubble({
+const CharacterBubble = memo(function CharacterBubble({
   characterId,
   content,
   charMap,
@@ -721,6 +774,7 @@ function CharacterBubble({
   content: string
   charMap: Map<string, Character>
 }) {
+  // memo 包裹：历史气泡不随流式 delta 重渲染
   const c = charMap.get(characterId)
   const name = c?.name ?? characterId
   const color = c?.color ?? '#8A8FC4'
@@ -741,11 +795,21 @@ function CharacterBubble({
       </div>
     </div>
   )
-}
+})
 
 function TtsButton({ text, characterId }: { text: string; characterId: string }) {
   const [state, setState] = useState<'idle' | 'loading' | 'playing'>('idle')
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const urlRef = useRef<string | null>(null)
+
+  // 卸载清理：暂停播放并释放对象 URL
+  useEffect(
+    () => () => {
+      audioRef.current?.pause()
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+    },
+    [],
+  )
 
   const play = async () => {
     if (state !== 'idle') return
@@ -755,14 +819,14 @@ function TtsButton({ text, characterId }: { text: string; characterId: string })
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       audioRef.current = audio
-      audio.onended = () => {
+      urlRef.current = url
+      const release = () => {
         setState('idle')
+        if (urlRef.current === url) urlRef.current = null
         URL.revokeObjectURL(url)
       }
-      audio.onerror = () => {
-        setState('idle')
-        URL.revokeObjectURL(url)
-      }
+      audio.onended = release
+      audio.onerror = release
       setState('playing')
       await audio.play()
     } catch {

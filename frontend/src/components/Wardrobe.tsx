@@ -14,6 +14,7 @@ const FUND_AMOUNTS = [10, 50, 100, 200]
 export function WardrobeSection() {
   const { user } = useAuth()
   const [data, setData] = useState<WardrobeData | null>(null)
+  const [failed, setFailed] = useState(false)
   const [toast, setToast] = useState('')
   const [funding, setFunding] = useState(false)
   const [wishKind, setWishKind] = useState<'outfit' | 'decor'>('outfit')
@@ -23,7 +24,13 @@ export function WardrobeSection() {
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(() => {
-    spaceApi.wardrobe().then(setData).catch(() => {})
+    spaceApi
+      .wardrobe()
+      .then((d) => {
+        setData(d)
+        setFailed(false)
+      })
+      .catch(() => setFailed(true))
   }, [])
 
   useEffect(() => {
@@ -33,9 +40,15 @@ export function WardrobeSection() {
     }
   }, [load])
 
+  // toast 自动消失（卸载清理）
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(''), 5000)
+    return () => clearTimeout(t)
+  }, [toast])
+
   const showToast = (text: string) => {
     setToast(text)
-    setTimeout(() => setToast(''), 5000)
   }
 
   const fund = async (amount: number) => {
@@ -70,7 +83,20 @@ export function WardrobeSection() {
     }
   }
 
-  if (!data) return null
+  if (!data) {
+    if (!failed) return null
+    return (
+      <section>
+        <h2 className="font-title text-2xl flex items-center gap-2 mb-4">
+          <Shirt className="w-5 h-5 text-crina" />
+          crina 的衣橱与小金库
+        </h2>
+        <p className="text-sm text-ink-soft bg-paper rounded-2xl border border-warm-line shadow-card p-5 text-center">
+          没连上小金库——网络可能打了个盹，刷新试试。
+        </p>
+      </section>
+    )
+  }
   const wearing = data.items.find((i) => i.wearing && i.kind === 'outfit')
   const others = data.items.filter((i) => i !== wearing)
 

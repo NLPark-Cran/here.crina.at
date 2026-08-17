@@ -134,7 +134,7 @@ function MemoriesTab() {
               </div>
               <button
                 onClick={() => remove(m.id)}
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all shrink-0"
+                className="md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-full text-ink-soft hover:text-anfeng hover:bg-anfeng/10 transition-all shrink-0"
                 aria-label="删除这条记忆"
               >
                 <Trash2 className="w-4 h-4" />
@@ -214,7 +214,10 @@ function CalendarTab() {
     }
   }
 
-  const upcoming = events.filter((e) => new Date(e.start_at).getTime() >= Date.now() - 86_400_000)
+  // 只展示近期待办，按开始时间升序（最近的最先）
+  const upcoming = events
+    .filter((e) => new Date(e.start_at).getTime() >= Date.now() - 86_400_000)
+    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
 
   return (
     <div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
@@ -61,11 +61,20 @@ function SettingsInner() {
     return () => clearTimeout(t)
   }, [toast])
 
+  const notifyHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (notifyHintTimer.current) clearTimeout(notifyHintTimer.current)
+    },
+    [],
+  )
+
   const toggle = (which: 'letter' | 'event') => {
     if (which === 'letter') setNotifyLetter((v) => !v)
     else setNotifyEvent((v) => !v)
     setNotifyHint('先记住你的选择啦，通知功能接通后就生效')
-    setTimeout(() => setNotifyHint(''), 3000)
+    if (notifyHintTimer.current) clearTimeout(notifyHintTimer.current)
+    notifyHintTimer.current = setTimeout(() => setNotifyHint(''), 3000)
   }
 
   const doLogout = async () => {

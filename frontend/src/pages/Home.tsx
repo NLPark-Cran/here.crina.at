@@ -20,11 +20,19 @@ export function HomePage() {
   const [presence, setPresence] = useState<Record<string, string>>({})
   const [posts, setPosts] = useState<Post[]>([])
   const [hasHallHero, setHasHallHero] = useState(false)
+  const [charsFailed, setCharsFailed] = useState(false)
+  const [postsFailed, setPostsFailed] = useState(false)
 
   useEffect(() => {
-    spaceApi.characters().then((d) => setCharacters(d.characters)).catch(() => {})
+    spaceApi
+      .characters()
+      .then((d) => setCharacters(d.characters))
+      .catch(() => setCharsFailed(true))
     spaceApi.presence().then((d) => setPresence(d.presence)).catch(() => {})
-    postsApi.list(3).then((d) => setPosts(d.posts.slice(0, 3))).catch(() => {})
+    postsApi
+      .list(3)
+      .then((d) => setPosts(d.posts.slice(0, 3)))
+      .catch(() => setPostsFailed(true))
     probeImage('/assets/hall_hero.webp').then(setHasHallHero)
   }, [])
 
@@ -44,11 +52,16 @@ export function HomePage() {
             <video
               src="/assets/hall_ambience.mp4"
               poster="/assets/hall_hero.webp"
+              preload="metadata"
               autoPlay
               muted
               loop
               playsInline
               aria-hidden
+              onError={(e) => {
+                // 视频缺失/加载失败时隐藏，由 poster 外的渐变背景免底，不露黑块
+                e.currentTarget.style.display = 'none'
+              }}
               className="absolute inset-0 w-full h-full object-cover opacity-25 mix-blend-soft-light pointer-events-none select-none"
             />
             <div className="absolute inset-0 bg-gradient-to-b from-cream/40 via-cream/70 to-cream pointer-events-none" />
@@ -151,7 +164,9 @@ export function HomePage() {
           ))}
           {characters.length === 0 && (
             <p className="text-sm text-ink-soft col-span-full py-8 text-center">
-              居民们好像都躲起来了，稍等再来看看……
+              {charsFailed
+                ? '没连上小屋——网络可能打了个盹，刷新试试。'
+                : '居民们好像都躲起来了，稍等再来看看……'}
             </p>
           )}
         </div>
@@ -201,7 +216,9 @@ export function HomePage() {
           ))}
           {posts.length === 0 && (
             <p className="text-sm text-ink-soft py-6 text-center">
-              客厅还静悄悄的，去沙发上丢第一句碎碎念吧。
+              {postsFailed
+                ? '没连上客厅——网络可能打了个盹，刷新试试。'
+                : '客厅还静悄悄的，去沙发上丢第一句碎碎念吧。'}
             </p>
           )}
         </div>

@@ -19,6 +19,8 @@ export function ParlorPage() {
   const [openReply, setOpenReply] = useState<string | null>(null)
   const [error, setError] = useState('')
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 回复提交 in-flight 锁，防连按重复提交 */
+  const replyInflightRef = useRef<Set<string>>(new Set())
 
   const load = useCallback(() => {
     postsApi
@@ -60,7 +62,8 @@ export function ParlorPage() {
 
   const submitReply = async (postId: string) => {
     const content = (replyDrafts[postId] ?? '').trim()
-    if (!content) return
+    if (!content || replyInflightRef.current.has(postId)) return
+    replyInflightRef.current.add(postId)
     try {
       await postsApi.reply(postId, content)
       setReplyDrafts((d) => ({ ...d, [postId]: '' }))
@@ -69,6 +72,8 @@ export function ParlorPage() {
       scheduleRefresh()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '回复没送出去，再试一次？')
+    } finally {
+      replyInflightRef.current.delete(postId)
     }
   }
 
@@ -205,13 +210,15 @@ export function ParlorPage() {
                         onChange={(e) =>
                           setReplyDrafts((d) => ({ ...d, [p.id]: e.target.value }))
                         }
-                        onKeyDown={(e) => e.key === 'Enter' && submitReply(p.id)}
+                        onKeyDown={(e) =>
+                          e.key === 'Enter' && !e.nativeEvent.isComposing && void submitReply(p.id)
+                        }
                         placeholder="轻声回一句…"
                         maxLength={500}
                         className="flex-1 text-sm bg-cream rounded-full px-4 py-2 outline-none border border-warm-line focus:border-crina/50"
                       />
                       <button
-                        onClick={() => submitReply(p.id)}
+                        onClick={() => void submitReply(p.id)}
                         className="btn-press p-2 rounded-full bg-crina text-white hover:bg-crina-deep"
                         aria-label="发送回复"
                       >
