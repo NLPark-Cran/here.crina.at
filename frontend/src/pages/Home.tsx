@@ -193,6 +193,11 @@ export function HomePage() {
                     >
                       {c.mbti}
                     </span>
+                    {c.status_text && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream border border-warm-line text-ink-soft">
+                        {c.status_text}
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-xs text-ink-soft leading-relaxed line-clamp-2">
                     {c.tagline}

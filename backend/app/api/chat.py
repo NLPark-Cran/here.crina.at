@@ -55,12 +55,14 @@ async def list_conversations(user: User = Depends(get_current_user), db: AsyncSe
         select(Conversation).where(Conversation.user_id == user.id)
         .order_by(desc(Conversation.updated_at)).limit(50)
     )).scalars().all()
-    # 单查询取每个会话的最后一条消息（去重窗口）
+    # 单查询取每个会话的最后一条消息（窗口限定在当前用户的会话内，不全表扫）
     if rows:
         from sqlalchemy import func, over
+        conv_ids = [c.id for c in rows]
         rn = over(func.row_number(), partition_by=Message.conversation_id,
-                  order_by=desc(Message.created_at)).label("rn")
-        sub = select(Message.conversation_id, Message.content, rn).subquery()
+                  order_by=desc(Message.seq)).label("rn")
+        sub = select(Message.conversation_id, Message.content, rn).where(
+            Message.conversation_id.in_(conv_ids)).subquery()
         lasts = (await db.execute(
             select(sub.c.conversation_id, sub.c.content).where(sub.c.rn == 1)
         )).all()
@@ -77,9 +79,12 @@ async def get_conversation(conv_id: str, user: User = Depends(get_current_user),
         Conversation.id == conv_id, Conversation.user_id == user.id))).scalar_one_or_none()
     if not conv:
         raise HTTPException(404, "对话不存在")
-    msgs = (await db.execute(
-        select(Message).where(Message.conversation_id == conv.id).order_by(Message.created_at).limit(200)
-    )).scalars().all()
+    # 取最新 200 条再反转（长会话不能丢尾部）
+    msgs = list((await db.execute(
+        select(Message).where(Message.conversation_id == conv.id)
+        .order_by(desc(Message.seq)).limit(200)
+    )).scalars().all())
+    msgs.reverse()
     return {**conv_out(conv), "messages": [
         {"id": str(m.id), "role": m.role, "character_id": m.character_id,
          "kind": m.kind, "content": m.content, "created_at": m.created_at.isoformat()}
@@ -143,9 +148,13 @@ async def tts(body: TTSRequest, user: User = Depends(get_current_user), db: Asyn
     if not api_key:
         raise HTTPException(503, "语音服务未配置")
     try:
+        audio = await tokendance.tts(body.text, voice_id=voice, api_key=api_key)
+    except Exception:
+        raise HTTPException(502, "语音生成失败了，稍后再试") from None
+    # 成功才计配额（失败不扣）
+    try:
         await engine.check_and_count_quota(db, user, "tts", is_byok)
     except engine.QuotaExceeded:
         raise HTTPException(429, "今日语音额度用完啦") from None
-    audio = await tokendance.tts(body.text, voice_id=voice, api_key=api_key)
     await r.setex(cache_key, 86400 * 7, base64.b64encode(audio).decode())
     return Response(content=audio, media_type="audio/mpeg")

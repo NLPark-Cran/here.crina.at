@@ -563,6 +563,16 @@ function TaskCard({
     if (task.status === 'running' && !liveStartedRef.current) streamedRef.current = false
   }, [task.status])
 
+  // 合上详情时复位，下次展开重连（服务端日志回放是幂等的，本地要先清空防重复）
+  useEffect(() => {
+    if (open) return
+    streamedRef.current = false
+    liveStartedRef.current = false
+    setReport('')
+    setTools([])
+    abortRef.current?.abort()
+  }, [open])
+
   // 展开详情时自动连接施工流（历史回放 + 实时追加）
   useEffect(() => {
     if (!open || streamedRef.current) return

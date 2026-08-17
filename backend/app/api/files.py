@@ -53,7 +53,8 @@ WRITE_MAX = 1024 * 1024  # 写入上限 1MB
 def _resolve_text_target(user: User, path: str) -> Path:
     root = _sandbox(user).resolve()
     target = (root / path).resolve()
-    if not str(target).startswith(str(root)) or target.name in IGNORE or ".kimi" in target.parts:
+    # is_relative_to：防兄弟目录逃逸（如 sandbox_evil）；IGNORE/.kimi 一律不可见
+    if not target.is_relative_to(root) or target.name in IGNORE or ".kimi" in target.parts:
         raise HTTPException(404, "文件不存在")
     return target
 
@@ -87,8 +88,7 @@ async def write_file(path: str, body: WriteBody, user: User = Depends(get_curren
 
 @router.get("/{path:path}")
 async def download(path: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    root = _sandbox(user).resolve()
-    target = (root / path).resolve()
-    if not str(target).startswith(str(root)) or not target.is_file() or target.name in IGNORE:
+    target = _resolve_text_target(user, path)
+    if not target.is_file():
         raise HTTPException(404, "文件不存在")
     return FileResponse(target, filename=target.name)

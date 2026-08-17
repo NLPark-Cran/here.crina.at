@@ -5,14 +5,16 @@ import asyncio
 import random
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..bg import fire_and_forget
+from ..cache import rate_limit
 from ..db import SessionLocal, get_db
 from ..engine import tokendance
+from ..engine.affinity import bump_affinity
 from ..models import Character, Post, PostReply, User
 from ..security import get_current_user, get_current_user_optional
 from ..soul.characters import WORLD
@@ -22,7 +24,15 @@ router = APIRouter(prefix="/posts", tags=["posts"])
 
 class CreatePost(BaseModel):
     content: str = Field(min_length=1, max_length=1000)
-    image_url: str | None = None
+    image_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("image_url")
+    @classmethod
+    def _only_local_assets(cls, v: str | None) -> str | None:
+        """只允许本站 /assets/ 图片（防第三方图床收集访客 IP/钓鱼图）"""
+        if v is not None and not v.startswith("/assets/"):
+            raise ValueError("图片只能用本站素材库里的哦")
+        return v
 
 
 class CreateReply(BaseModel):
@@ -50,7 +60,7 @@ async def _resolve_authors(db: AsyncSession, items: list[Post | PostReply]) -> d
 def _post_out(p: Post, authors: dict, replies: list[PostReply] | None = None) -> dict:
     a = authors.get(p.author_id, {"name": "神秘人", "type": p.author_type})
     return {
-        "id": str(p.id), "author": a, "author_id": p.author_id,
+        "id": str(p.id), "author": a, "author_id": p.author_id, "kind": p.kind,
         "content": p.content, "image_url": p.image_url,
         "created_at": p.created_at.isoformat(),
         "replies": [
@@ -118,9 +128,12 @@ async def _character_reply_bg(post_id: str, content: str):
 @router.post("")
 async def create_post(body: CreatePost, user: User = Depends(get_current_user),
                       db: AsyncSession = Depends(get_db)):
+    if not user.is_owner and not await rate_limit("post", str(user.id), 30):
+        raise HTTPException(429, "今天碎碎念够多啦，喝口水明天再聊")
     post = Post(author_type="user", author_id=str(user.id), content=body.content, image_url=body.image_url)
     db.add(post)
     await db.commit()
+    await bump_affinity(db, user.id, "post")
     if random.random() < 0.7:
         fire_and_forget(_character_reply_bg(str(post.id), body.content))
     return {"id": str(post.id)}
@@ -130,9 +143,15 @@ async def create_post(body: CreatePost, user: User = Depends(get_current_user),
 async def create_reply(post_id: str, body: CreateReply, user: User = Depends(get_current_user),
                        db: AsyncSession = Depends(get_db)):
     import uuid
-    post = await db.get(Post, uuid.UUID(post_id))
+    try:
+        pid = uuid.UUID(post_id)
+    except ValueError:
+        raise HTTPException(404, "帖子不存在") from None
+    post = await db.get(Post, pid)
     if not post:
         raise HTTPException(404, "帖子不存在")
+    if not user.is_owner and not await rate_limit("reply", str(user.id), 60):
+        raise HTTPException(429, "今天聊得够多啦，明天再继续")
     reply = PostReply(post_id=post.id, author_type="user", author_id=str(user.id), content=body.content)
     db.add(reply)
     await db.commit()

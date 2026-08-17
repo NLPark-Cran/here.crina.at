@@ -21,15 +21,24 @@ log = logging.getLogger("crina.import")
 
 EMIND_URL = settings.database_url.rsplit("/", 1)[0] + "/eastmind"
 
+# 模块级懒单例：每请求新建 engine 会反复建连 PG
+_emind_engine = None
+
+
+def _emind():
+    global _emind_engine
+    if _emind_engine is None:
+        _emind_engine = create_async_engine(EMIND_URL, pool_size=2, max_overflow=0)
+    return _emind_engine
+
 
 @router.get("/emind/status")
 async def emind_status(user: User = Depends(get_current_user)):
     """检查当前用户的邮箱在 emind 里有多少可导入的数据"""
     if not user.email:
         return {"available": False, "reason": "你的观猹账号还没绑定邮箱，无法和 emind 账号对上"}
-    engine = create_async_engine(EMIND_URL, pool_size=2)
     try:
-        async with engine.connect() as conn:
+        async with _emind().connect() as conn:
             u = (await conn.execute(text("SELECT id, name FROM users WHERE email = :e"),
                                     {"e": user.email})).first()
             if not u:
@@ -46,8 +55,6 @@ async def emind_status(user: User = Depends(get_current_user)):
     except Exception:
         log.exception("emind 状态检查失败")
         return {"available": False, "reason": "连不上旧家，稍后再试试"}
-    finally:
-        await engine.dispose()
 
 
 KIND_MAP = {"fact": "fact", "preference": "preference", "summary": "summary"}
@@ -63,10 +70,9 @@ async def emind_import(user: User = Depends(get_current_user), db: AsyncSession 
     if await r.get(f"import:emind:{user.id}"):
         raise HTTPException(429, "刚搬完一波，歇 30 分钟再搬（重复对话不会重复入库，放心）")
     await r.setex(f"import:emind:{user.id}", 1800, "1")
-    engine = create_async_engine(EMIND_URL, pool_size=2)
     imported = {"conversations": 0, "messages": 0, "memories": 0}
     try:
-        async with engine.connect() as conn:
+        async with _emind().connect() as conn:
             u = (await conn.execute(text("SELECT id FROM users WHERE email = :e"),
                                     {"e": user.email})).first()
             if not u:
@@ -125,7 +131,5 @@ async def emind_import(user: User = Depends(get_current_user), db: AsyncSession 
         await db.rollback()
         log.exception("emind 导入失败")
         raise HTTPException(500, "搬家车半路熄火了，稍后再试一次吧") from None
-    finally:
-        await engine.dispose()
     return {"ok": True, "imported": imported,
             "message": f"搬好啦：{imported['conversations']} 段对话、{imported['memories']} 条记忆。crina 会替旧家继续记得你。"}

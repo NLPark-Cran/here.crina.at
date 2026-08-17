@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncGenerator
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from ..db import SessionLocal
 from ..models import Character, Conversation, Message, OAuthAccount, UsageCounter, User
 from ..security import decrypt_payload
 from . import memory, tokendance
+from .affinity import bump_affinity
 
 settings = get_settings()
 
@@ -41,7 +42,12 @@ async def check_and_count_quota(db: AsyncSession, user: User, kind: str, is_byok
         return
     limits = {"chat": settings.quota_chat_per_day, "agent": settings.quota_agent_per_day,
               "tts": settings.quota_tts_per_day}
-    today = date.today()
+    # 配额日界按用户时区（海外用户不会在奇怪的时间被重置）
+    from zoneinfo import ZoneInfo
+    try:
+        today = datetime.now(ZoneInfo(user.timezone or "Asia/Shanghai")).date()
+    except Exception:
+        today = date.today()
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     stmt = pg_insert(UsageCounter).values(user_id=user.id, day=today, kind=kind, count=1)
     stmt = stmt.on_conflict_do_update(
@@ -85,7 +91,11 @@ async def stream_reply(conversation_id: str, user: User, content: str,
                        db: AsyncSession) -> AsyncGenerator[str, None]:
     """主入口：SSE 事件流"""
     import uuid as _uuid
-    conv_id = _uuid.UUID(conversation_id)
+    try:
+        conv_id = _uuid.UUID(conversation_id)
+    except ValueError:
+        yield sse({"type": "error", "message": "对话不存在"})
+        return
     conversation = (await db.execute(select(Conversation).where(
         Conversation.id == conv_id, Conversation.user_id == user.id))).scalar_one_or_none()
     if not conversation:
@@ -102,9 +112,11 @@ async def stream_reply(conversation_id: str, user: User, content: str,
         yield sse({"type": "error", "message": "今日站点额度用完啦，接入自己的词元蓄电池可以无限畅聊（设置 → 词元蓄电池）"})
         return
 
-    # 存入用户消息
+    # 存入用户消息（同时触碰会话 updated_at，侧边栏按最近排序）
     db.add(Message(conversation_id=conversation.id, role="user", content=content))
+    conversation.updated_at = datetime.now(UTC)
     await db.commit()
+    await bump_affinity(db, user.id, "chat")
 
     main_char = (await db.execute(select(Character).where(Character.id == conversation.character_id))).scalar_one()
     mode = conversation.mode
@@ -124,8 +136,10 @@ async def stream_reply(conversation_id: str, user: User, content: str,
                 elif etype == "saved":
                     full = text
             exchange.append({"role": "assistant", "content": full})
-    except Exception as e:
-        yield sse({"type": "error", "message": f"生成失败：{e}"})
+    except Exception:
+        import logging
+        logging.getLogger("crina.chat").exception("生成失败 conv=%s", conversation.id)
+        yield sse({"type": "error", "message": "刚才脑子打了个结，再说一次试试？"})
         return
 
     # 后台：记忆抽取 + 摘要

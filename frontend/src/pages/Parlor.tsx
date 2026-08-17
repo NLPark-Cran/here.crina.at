@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { SendHorizonal, Trash2, Sofa } from 'lucide-react'
+import { Footprints, SendHorizonal, Trash2, Sofa } from 'lucide-react'
 import { postsApi, spaceApi, ApiError } from '../api/client'
 import type { GarbageItem, Post } from '../api/types'
 import { CharacterAvatar } from '../components/CharacterAvatar'
@@ -142,8 +142,18 @@ export function ParlorPage() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, delay: Math.min(i * 0.04, 0.4) }}
-              className="bg-paper rounded-2xl shadow-card border border-warm-line p-5"
+              className={`rounded-2xl p-5 ${
+                p.kind === 'visit'
+                  ? 'bg-cream/60 border border-dashed border-warm-line'
+                  : 'bg-paper shadow-card border border-warm-line'
+              }`}
             >
+              {p.kind === 'visit' && (
+                <div className="mb-2 text-[11px] text-qiule flex items-center gap-1">
+                  <Footprints className="w-3.5 h-3.5" />
+                  串门小记
+                </div>
+              )}
               <div className="flex items-center gap-2.5">
                 <CharacterAvatar
                   name={p.author.name}

@@ -42,7 +42,7 @@ Agent 沙箱: /var/crina/users/<uid>/sandbox（+ kimi.toml 代理配置 + tasks/
 
 ## 4. DB schema（15 表，PG 库 crina）
 
-users(id,watcha_user_id uniq,nickname,avatar_url,email,is_owner,relation_tier 陌生/熟人/老友,notify_email,timezone 默认Asia/Shanghai,last_seen_at)
+users(id,watcha_user_id uniq,nickname,avatar_url,email,is_owner,relation_tier 陌生/熟人/老友,notify_email,timezone 默认Asia/Shanghai,affinity 熟悉度(聊天+2/写信+5/发帖+1,30升熟人/120升老友,只升不降),ics_token 日历订阅只读token,last_seen_at)
 oauth_accounts(user_id+provider uniq, payload_enc Fernet 加密 JSON, scopes)
 characters(id slug 主键,name,tagline,mbti,color,avatar_url,soul_public,soul_private,voice_id,is_agent,active)
 conversations(id,user_id,character_id,mode,folder(''/'emind'),title,summary) ← messages(conversation_id,role user/character/narrator,character_id,kind,content) append-only
@@ -90,5 +90,7 @@ usage_counters(user_id+day+kind uniq, count) 配额原子计数
 ✅ R1 记忆系统（ops+evidence、大扫除、晚安信汇报新记忆、发件人显示名）+ 用户时区（问候信/提醒按用户当地时间触发：greet_tick 每小时轮询各时区 8 点/22 点）
 ✅ R2 streamdown 2.5 渲染（components/Markdown.tsx 统一封装；plugins code/math/cjk；聊天气泡/档案馆/信箱/委托汇报全接入；katex.min.css + index.css @source 指令 + shadcn 变量映射暖纸色；shiki/mermaid 按需 chunk；MarkdownLite 已删除）
 ✅ R3 书桌工作台：聊天常驻「去书桌」按钮（带当前输入/最近一句→/board?draft= 预填小纸条）+ 干活意图启发式提议卡（WORK_HINTS 关键词→流式完成后弹「钉到委托板」卡片，可忽略）+ 轻IDE（文件空间打开文本文件：md 用 streamdown 渲染/代码等宽，编辑保存 PUT /files/write，「让 crina 接着改」预填委托）
-📋 待做（按序）：R3.5 独响启发（状态墙/关系数值活化/串门事件/专注陪伴模式，调研存 docs/research/duxiang-ai-moments.md）/ R4 小屋剖面地图 / R5 设计系统升级 / R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
+✅ R3.5 独响启发：状态墙（characters.status_text 2-6字，job_status 每30min检查、按居民 4-10h 错开 LLM 换新，门厅卡片 chip 展示）/ 关系数值（users.affinity + engine/affinity.py，自动升 tier）/ 串门事件（job_visit 每天10/15/20点，posts.kind=visit 虚线卡）/ 专注模式（Chat 头部「一起专注」25min 番茄钟浮窗，前端仪式）
+✅ 二轮深度审查修复：worker 降权（crinawork 用户跑 sandbox 委托，kimi 复制到 /opt/kimi-cli + /usr/local/bin/kimi，HOME 指向沙箱；renovate 仍服务身份）/ 衣橱 pg_advisory_xact_lock 防双花+异常退款+bg.py 异常进日志 / config 移除硬编码观猹 secret / 生成失败不再透出上游细节 / files 三端点统一 is_relative_to+.kimi 拦截 / ICS 独立只读 token（可重置）/ messages.seq BIGSERIAL IDENTITY 排序列 / 会话 updated_at 随消息触碰 / 消息取最新N条再反转 / letters(10/日) posts(30/日) replies(60/日) extract(5/日) Redis 限流(cache.rate_limit) / posts.image_url 仅 /assets/ / 委托先验资格再扣配额 / TTS 成功才计配额 / 施工流先订阅再回放+事件序号 n 去重 / importer engine 模块级单例 / 设置页假开关移除 / Chat pendingFirst 被挡自动补发 / Board 合上复位可重连
+📋 待做（按序）：R4 小屋剖面地图 / R5 设计系统升级 / R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
 📚 调研存档：docs/research/duxiang-ai-moments.md（独响 App 全拆解：异步朋友圈节奏/七层关系数值/一起入睡/情绪兜底猫/居民互相串门）

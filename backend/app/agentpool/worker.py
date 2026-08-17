@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import pwd
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -12,6 +14,44 @@ from ..config import get_settings
 
 settings = get_settings()
 log = logging.getLogger("crina.agentpool")
+
+# OS 级隔离：sandbox 委托的 worker 以低权用户运行（读不到 .env / 系统文件）；
+# renovate（主人专属、需 npm build）仍以服务身份运行。
+WORKER_USER = "crinawork"
+
+
+def _worker_ids() -> tuple[int, int] | None:
+    try:
+        pw = pwd.getpwnam(WORKER_USER)
+        return pw.pw_uid, pw.pw_gid
+    except KeyError:
+        log.warning("低权用户 %s 不存在，worker 将以服务身份运行（隔离降级）", WORKER_USER)
+        return None
+
+
+def _demote_preexec():
+    ids = _worker_ids()
+    if not ids:
+        return None
+    uid, gid = ids
+
+    def preexec():
+        os.setgid(gid)
+        os.setuid(uid)
+
+    return preexec
+
+
+def _chown_tree(path: Path) -> None:
+    ids = _worker_ids()
+    if not ids:
+        return
+    uid, gid = ids
+    for p in [path, *path.rglob("*")]:
+        try:
+            os.chown(p, uid, gid)
+        except OSError:
+            pass
 
 SANDBOX_AGENTS_MD = """# 你是 crina（干活形态）
 
@@ -86,13 +126,19 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
         kimi_dir.mkdir(exist_ok=True)
         (kimi_dir / "AGENTS.md").write_text(RENOVATE_AGENTS_MD, encoding="utf-8")
         ensure_user_sandbox(user_id, proxy_base)  # 只为生成 kimi.toml
+        preexec = None  # 主人专属：需写前端仓库 + npm build，保持服务身份
     else:
         sandbox = ensure_user_sandbox(user_id, proxy_base)
+        _chown_tree(sandbox.parent)  # worker 以低权用户运行，沙箱要可写
+        preexec = _demote_preexec()
     proc = await asyncio.create_subprocess_exec(
         settings.kimi_bin, "--wire", "-w", str(sandbox),
         "--config-file", str(sandbox.parent / "kimi.toml"),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
+        preexec_fn=preexec,
+        # 低权用户无 home：把 HOME 指到沙箱根，kimi 的缓存/日志也落在里面
+        env={**os.environ, "HOME": str(sandbox.parent)} if preexec else None,
     )
 
     async def send(method: str, params: dict | None = None, _id: str | None = None):

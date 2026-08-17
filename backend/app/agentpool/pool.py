@@ -106,8 +106,11 @@ async def execute_task(task_id: str):
         _live[task_id] = {"queues": _live.get(task_id, {}).get("queues", set()), "done": False}
         try:
             import aiofiles
+            n = 0  # 每任务事件序号：回放与实时流衔接处按此去重
             async with aiofiles.open(log_file, "a", encoding="utf-8") as fp:
                 async for event in run_task(task_id, user_id, prompt, api_key, target):
+                    n += 1
+                    event["n"] = n
                     await fp.write(json.dumps(event, ensure_ascii=False) + "\n")
                     if event["type"] == "text":
                         transcript.append(event["text"])

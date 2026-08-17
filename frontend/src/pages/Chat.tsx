@@ -12,6 +12,7 @@ import {
   Package,
   Plus,
   SendHorizonal,
+  Timer,
   Trash2,
   Volume2,
   X,
@@ -174,8 +175,9 @@ function ChatInner() {
     async (conv: Conversation, content: string) => {
       if (!content) return
       if (streaming) {
-        // 上一段还在流式输出，这次发送（含 pendingFirst）不能静默丢弃
-        setToast('上一段还没说完，等一等哦')
+        // 上一段还在流式输出：不能静默丢弃——挂回 pendingFirst，流式结束后自动补发
+        pendingFirstRef.current ??= content
+        setToast('上一段还没说完，说完就替你发出去')
         return
       }
       setError('')
@@ -352,12 +354,20 @@ function ChatInner() {
     void sendTo(active, content)
   }
 
-  // 流式说完后：若刚才那条像件活儿，递上「钉到委托板」提议卡
+  // 流式说完后：补发被挡住的首条消息；若刚才那条像件活儿，递上「钉到委托板」提议卡
   useEffect(() => {
-    if (!streaming && pendingProposalRef.current) {
+    if (streaming) return
+    if (pendingFirstRef.current && active) {
+      const first = pendingFirstRef.current
+      pendingFirstRef.current = null
+      void sendTo(active, first)
+      return
+    }
+    if (pendingProposalRef.current) {
       setProposal(pendingProposalRef.current)
       pendingProposalRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streaming])
 
   /** 常驻「去书桌」：带着当前输入或最近一句话去委托板 */
@@ -557,6 +567,7 @@ function ChatInner() {
                   </div>
                 </div>
                 <ModeDropdown value={active.mode ?? 'auto'} onChange={changeMode} />
+                <FocusMode character={activeChar} />
                 <button
                   onClick={extractToArchive}
                   disabled={extracting || messages.length === 0}
@@ -974,5 +985,111 @@ function TtsButton({ text, characterId }: { text: string; characterId: string })
       )}
       {state === 'loading' ? '在录音了…' : state === 'playing' ? '播放中' : '听 ta 说'}
     </button>
+  )
+}
+
+/** 一起专注：25 分钟番茄钟，居民安静陪着（前端仪式，不打扰对话） */
+function FocusMode({ character }: { character?: Character }) {
+  const FOCUS_MINUTES = 25
+  const [endAt, setEndAt] = useState<number | null>(null)
+  const [leftSec, setLeftSec] = useState(0)
+  const [finished, setFinished] = useState(false)
+
+  useEffect(() => {
+    if (!endAt) return
+    const tick = () => {
+      const left = Math.max(0, Math.round((endAt - Date.now()) / 1000))
+      setLeftSec(left)
+      if (left <= 0) {
+        setEndAt(null)
+        setFinished(true)
+      }
+    }
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [endAt])
+
+  useEffect(() => {
+    if (!finished) return
+    const t = setTimeout(() => setFinished(false), 20000)
+    return () => clearTimeout(t)
+  }, [finished])
+
+  const mm = String(Math.floor(leftSec / 60)).padStart(2, '0')
+  const ss = String(leftSec % 60).padStart(2, '0')
+  const name = character?.name ?? 'crina'
+
+  return (
+    <>
+      <button
+        onClick={() => {
+          setFinished(false)
+          setEndAt(Date.now() + FOCUS_MINUTES * 60_000)
+        }}
+        disabled={endAt !== null}
+        title={`和 ${name} 一起专注 ${FOCUS_MINUTES} 分钟`}
+        className="btn-press shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs bg-tuanman/12 text-tuanman hover:bg-tuanman/20 disabled:opacity-40"
+      >
+        <Timer className="w-3 h-3" />
+        <span className="hidden sm:inline">一起专注</span>
+      </button>
+
+      <AnimatePresence>
+        {endAt !== null && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            className="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-2xl bg-paper/90 backdrop-blur border border-warm-line shadow-float px-4 py-3"
+          >
+            <CharacterAvatar
+              name={name}
+              color={character?.color}
+              avatarUrl={character?.avatar_url || null}
+              size={32}
+            />
+            <div>
+              <div className="font-mono text-lg leading-none tabular-nums">
+                {mm}:{ss}
+              </div>
+              <div className="mt-1 text-[11px] text-ink-soft">{name} 在安静陪你，别刷手机哦</div>
+            </div>
+            <button
+              onClick={() => setEndAt(null)}
+              className="btn-press text-xs px-2.5 py-1.5 rounded-lg border border-warm-line text-ink-soft hover:text-anfeng"
+            >
+              提前收工
+            </button>
+          </motion.div>
+        )}
+        {finished && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            className="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-2xl bg-paper/95 backdrop-blur border border-tuanman/30 shadow-float px-4 py-3"
+          >
+            <CharacterAvatar
+              name={name}
+              color={character?.color}
+              avatarUrl={character?.avatar_url || null}
+              size={32}
+            />
+            <div className="text-sm text-ink leading-relaxed">
+              {FOCUS_MINUTES} 分钟到啦——{name} 为你鼓掌！
+              <div className="text-[11px] text-ink-soft">起来倒杯水，看看窗外再回来。</div>
+            </div>
+            <button
+              onClick={() => setFinished(false)}
+              aria-label="收下鼓励"
+              className="btn-press p-1.5 rounded-lg text-ink-soft/60 hover:text-ink"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   )
 }

@@ -22,6 +22,7 @@ export interface Character {
   mbti: string
   color: string
   avatar_url: string
+  status_text?: string
   is_agent: boolean
 }
 
@@ -54,6 +55,7 @@ export interface Post {
   id: string
   author: PostAuthor
   author_id: string
+  kind?: string  // post 碎碎念 / visit 串门小事件
   content: string
   image_url: string | null
   created_at: string

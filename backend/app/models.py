@@ -4,7 +4,19 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -29,6 +41,8 @@ class User(Base):
     relation_tier: Mapped[str] = mapped_column(String(16), default="陌生")  # 陌生→熟人→老友
     notify_email: Mapped[bool] = mapped_column(Boolean, default=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Shanghai")  # IANA 时区，问候信/提醒按此触发
+    affinity: Mapped[int] = mapped_column(Integer, default=0)  # 熟悉度：互动累积，跨阈值自动升 relation_tier
+    ics_token: Mapped[str] = mapped_column(String(64), default="")  # 日历订阅专用只读 token（可重置，非会话 JWT）
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -62,6 +76,8 @@ class Character(Base):
     voice_id: Mapped[str] = mapped_column(String(64), default="")
     is_agent: Mapped[bool] = mapped_column(Boolean, default=False)  # crina 才有干活能力
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    status_text: Mapped[str] = mapped_column(String(16), default="")  # 状态墙：2-6 字当下状态，调度器每 4-10h 换新
+    status_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Conversation(Base):
@@ -85,6 +101,7 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(), unique=True)  # 单调序号：同秒消息排序稳定
     conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(16))  # user / character / narrator
     character_id: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 哪位居民说的
@@ -116,6 +133,7 @@ class Post(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
     author_type: Mapped[str] = mapped_column(String(16))  # user / character
     author_id: Mapped[str] = mapped_column(String(64), index=True)  # user uuid str / character slug
+    kind: Mapped[str] = mapped_column(String(16), default="post")  # post 碎碎念 / visit 串门小事件
     content: Mapped[str] = mapped_column(Text)
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

@@ -10,10 +10,12 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..bg import fire_and_forget
+from ..cache import rate_limit
 from ..db import SessionLocal, get_db
 from ..engine import tokendance
+from ..engine.affinity import bump_affinity
 from ..models import Character, Letter, User
-from ..security import get_current_user
+from ..security import get_current_user, parse_uuid
 from ..soul.characters import WORLD
 
 router = APIRouter(tags=["mailbox", "calendar", "memory", "wiki"])
@@ -38,7 +40,7 @@ async def list_letters(user: User = Depends(get_current_user), db: AsyncSession 
 
 @router.post("/letters/{letter_id}/read")
 async def read_letter(letter_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    letter = await db.get(Letter, _uuid.UUID(letter_id))
+    letter = await db.get(Letter, parse_uuid(letter_id))
     if not letter or letter.user_id != user.id:
         raise HTTPException(404, "信件不存在")
     letter.read = True
@@ -80,6 +82,9 @@ async def send_letter(body: SendLetter, user: User = Depends(get_current_user), 
     char = (await db.execute(select(Character).where(Character.id == body.character_id))).scalar_one_or_none()
     if not char:
         raise HTTPException(404, "居民不存在")
+    if not user.is_owner and not await rate_limit("letter", str(user.id), 10):
+        raise HTTPException(429, "今天写的信够多啦，让邮差歇歇，明天再写")
+    await bump_affinity(db, user.id, "letter")
     fire_and_forget(_reply_letter_bg(user.id, user.nickname, body.character_id, body.content))
     return {"ok": True, "message": f"信已经放进{char.name}的信箱啦，回信稍后就到"}
 

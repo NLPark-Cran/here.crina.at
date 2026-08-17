@@ -15,3 +15,13 @@ def get_redis() -> aioredis.Redis:
     if _pool is None:
         _pool = aioredis.from_url(settings.redis_url, decode_responses=True)
     return _pool
+
+
+async def rate_limit(kind: str, ident: str, limit: int, window_s: int = 86400) -> bool:
+    """固定窗口限流：窗口内第 limit+1 次起返回 False"""
+    r = get_redis()
+    key = f"rl:{kind}:{ident}"
+    count = await r.incr(key)
+    if count == 1:
+        await r.expire(key, window_s)
+    return count <= limit

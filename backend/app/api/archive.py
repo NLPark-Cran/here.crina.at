@@ -1,17 +1,16 @@
 """档案馆 · 记忆管理 + 探讨沉淀 wiki"""
 from __future__ import annotations
 
-import uuid as _uuid
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..cache import rate_limit
 from ..db import get_db
 from ..engine import tokendance
 from ..models import Conversation, Memory, Message, User, WikiPage
-from ..security import get_current_user, get_current_user_optional
+from ..security import get_current_user, get_current_user_optional, parse_uuid
 
 router = APIRouter(tags=["archive"])
 
@@ -30,7 +29,7 @@ async def list_memories(user: User = Depends(get_current_user), db: AsyncSession
 
 @router.delete("/memories/{memory_id}")
 async def delete_memory(memory_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    mem = await db.get(Memory, _uuid.UUID(memory_id))
+    mem = await db.get(Memory, parse_uuid(memory_id))
     if not mem or mem.user_id != user.id:
         raise HTTPException(404, "记忆不存在")
     await db.delete(mem)
@@ -68,12 +67,17 @@ class ExtractWiki(BaseModel):
 @router.post("/wiki/extract")
 async def extract_wiki(body: ExtractWiki, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     conv = (await db.execute(select(Conversation).where(
-        Conversation.id == _uuid.UUID(body.conversation_id), Conversation.user_id == user.id))).scalar_one_or_none()
+        Conversation.id == parse_uuid(body.conversation_id), Conversation.user_id == user.id))).scalar_one_or_none()
     if not conv:
         raise HTTPException(404, "对话不存在")
-    msgs = (await db.execute(
-        select(Message).where(Message.conversation_id == conv.id).order_by(Message.created_at).limit(60)
-    )).scalars().all()
+    if not user.is_owner and not await rate_limit("extract", str(user.id), 5):
+        raise HTTPException(429, "今天萃取够多啦，档案馆要慢慢沉淀，明天再来")
+    # 取最新 60 条再反转（长会话取头部会丢最近的结论）
+    msgs = list((await db.execute(
+        select(Message).where(Message.conversation_id == conv.id)
+        .order_by(desc(Message.seq)).limit(60)
+    )).scalars().all())
+    msgs.reverse()
     dialogue = "\n".join(f"{'用户' if m.role == 'user' else (m.character_id or '角色')}: {m.content[:300]}" for m in msgs)
     prompt = f"""把下面这场探讨萃取成一页可以收藏的「核心信念/观点沉淀」。
 格式：Markdown。先一句凝练的核心观点作为标题（# 开头），再分 2-4 小节展开，每小节两三句话。

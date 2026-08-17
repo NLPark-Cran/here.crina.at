@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     jwt_expire_days: int = 30
     fernet_key: str = ""  # BYOK/Token 加密（Fernet 32B urlsafe b64）
 
-    # 观猹 OAuth2
-    watcha_client_id: str = "1p9Mcr+CNLPAMFC0"  # 测试机密客户端，生产替换
-    watcha_client_secret: str = "aqkUs+5ZGLSVG6A/L/I0ib9uownWxH+w"
+    # 观猹 OAuth2（凭据只从 .env 读，勿写入源码）
+    watcha_client_id: str = ""
+    watcha_client_secret: str = ""
     watcha_authorize_url: str = "https://watcha.cn/oauth/authorize"
     watcha_token_url: str = "https://watcha.cn/oauth/api/token"
     watcha_userinfo_url: str = "https://watcha.cn/oauth/api/userinfo"

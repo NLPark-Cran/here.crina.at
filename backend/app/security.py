@@ -58,6 +58,15 @@ def decrypt_payload(enc: str) -> dict:
     return json.loads(_fernet().decrypt(enc.encode()).decode())
 
 
+def parse_uuid(value: str) -> uuid.UUID:
+    """路径参数里的 UUID：畸形输入统一 404（而不是 500 炸 HTML/SSE）"""
+    from fastapi import HTTPException
+    try:
+        return uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(404, "不存在") from None
+
+
 # ---------- 当前用户 ----------
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     token = request.cookies.get(COOKIE_NAME)

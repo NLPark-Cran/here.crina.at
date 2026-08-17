@@ -217,6 +217,81 @@ async def job_remind():
                 log.info("事件提醒已发送 user=%s event=%s", user.id, ev.title)
 
 
+GUAGUA_STATUS = ["吃瓜中", "蹲墙角", "呱。", "抱瓜打滚", "盯——", "晒太阳"]
+
+
+async def job_status():
+    """状态墙：居民 2-6 字的当下状态，每个居民 4-10 小时（按 id 错开）换新一次"""
+    now = datetime.now(UTC)
+    async with SessionLocal() as db:
+        chars = (await db.execute(select(Character).where(Character.active == True))).scalars().all()  # noqa: E712
+        for c in chars:
+            interval_h = 4 + (hash(c.id) % 7)  # 4-10h，按居民错开
+            if c.status_updated_at:
+                updated = c.status_updated_at
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=UTC)
+                if (now - updated) < timedelta(hours=interval_h):
+                    continue
+            if c.id == "guagua":
+                text = random.choice(GUAGUA_STATUS)
+            else:
+                prompt = f"""{WORLD}
+
+{c.soul_public}
+
+# 任务
+给你自己写一个「当下状态」，类似微信状态：2-6 个字，要符合你的人格和作息。
+好例子：「观鸟中」「泡茶」「赶稿」「发呆」「听雨」「翻旧信」
+只输出状态本身，不要标点收尾，不要解释。"""
+                try:
+                    text = (await tokendance.chat_once(
+                        [{"role": "user", "content": prompt}], temperature=1.0, max_tokens=20
+                    )).strip().strip('"「」*_ ')[:8]
+                except Exception:
+                    log.exception("状态生成失败 char=%s", c.id)
+                    continue
+                if not text:
+                    continue
+            c.status_text = text
+            c.status_updated_at = now
+        await db.commit()
+    log.debug("状态墙已刷新")
+
+
+async def job_visit():
+    """串门事件：居民之间的小互动，作为 kind=visit 出现在客厅时间线"""
+    async with SessionLocal() as db:
+        chars = (await db.execute(
+            select(Character).where(Character.active == True, Character.id != "guagua")  # noqa: E712
+        )).scalars().all()
+        if len(chars) < 2:
+            return
+        a, b = random.sample(chars, 2)
+        prompt = f"""{WORLD}
+
+{a.soul_public}
+
+# 情境
+居民们住在一个空间里。写一句「{a.name} 去找/路过 {b.name}」的小场景，发在客厅时间线上。
+要求：
+- 用 {a.name} 的人格和口吻，一句话，不超过 50 字
+- 具体、有生活感（比如借东西/串门/一起看什么）
+- 不要旁白腔，像本人随手发的"""
+        try:
+            text = (await tokendance.chat_once(
+                [{"role": "user", "content": prompt}], temperature=1.0, max_tokens=120
+            )).strip().strip('"')[:200]
+        except Exception:
+            log.exception("串门事件生成失败")
+            return
+        if not text:
+            return
+        db.add(Post(author_type="character", author_id=a.id, kind="visit", content=text))
+        await db.commit()
+        log.info("串门事件：%s → %s", a.id, b.id)
+
+
 async def job_shopping():
     """每周日傍晚：经费充足的话 crina 自己去逛街"""
     from ..engine import wardrobe
@@ -243,6 +318,9 @@ def start_scheduler():
                            args=[hour], id=f"autopost_{hour}")
     _scheduler.add_job(job_greet_tick, CronTrigger(minute=10), id="greet_tick")
     _scheduler.add_job(job_remind, IntervalTrigger(minutes=5), id="remind")
+    _scheduler.add_job(job_status, IntervalTrigger(minutes=30), id="status",
+                       next_run_time=datetime.now(CST))
+    _scheduler.add_job(job_visit, CronTrigger(hour="10,15,20", minute=random.randint(0, 59)), id="visit")
     _scheduler.add_job(job_shopping, CronTrigger(day_of_week="sun", hour=20, minute=15), id="shopping")
     _scheduler.start()
     log.info("主动性引擎已启动")

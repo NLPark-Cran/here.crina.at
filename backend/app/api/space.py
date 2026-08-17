@@ -31,7 +31,8 @@ async def list_characters(db: AsyncSession = Depends(get_db)):
     chars = (await db.execute(select(Character).where(Character.active == True))).scalars().all()  # noqa: E712
     return {"characters": [
         {"id": c.id, "name": c.name, "tagline": c.tagline, "mbti": c.mbti,
-         "color": c.color, "avatar_url": c.avatar_url, "is_agent": c.is_agent}
+         "color": c.color, "avatar_url": c.avatar_url, "is_agent": c.is_agent,
+         "status_text": c.status_text}
         for c in chars
     ]}
 

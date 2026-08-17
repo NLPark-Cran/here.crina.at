@@ -77,16 +77,30 @@ async def _gen_image(prompt: str, ref_path: Path | None = None) -> bytes | None:
     return None
 
 
+# 购置串行化：小金库余额是流水汇总，并发扣款会双花 → 用 PG 事务级咨询锁串行
+PURSE_LOCK_KEY = 917231
+
+
 async def buy(db: AsyncSession, kind: str, hint: str, by_nickname: str) -> WardrobeItem | None:
-    """购置一件装扮/摆件：先扣款（防双花） → 构思 → 生图 → 入库 → 客厅炫耀"""
+    """购置一件装扮/摆件：先扣款（防双花） → 构思 → 生图 → 入库 → 客厅炫耀；任何异常都退款"""
+    from sqlalchemy import text
+
     from . import tokendance
     cost = OUTFIT_COST if kind == "outfit" else DECOR_COST
+    # 咨询锁：并发 buy 串行，第二个能看到第一个已提交的扣款
+    await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": PURSE_LOCK_KEY})
     # 先插负流水并校验余额，不够则回滚
-    db.add(PurseLedger(delta=-cost, reason="（预付购置款）"))
+    prepaid = PurseLedger(delta=-cost, reason="（预付购置款）")
+    db.add(prepaid)
     await db.flush()
     if await get_balance(db) < 0:
         await db.rollback()
         return None
+
+    async def _refund(reason: str) -> None:
+        """退款：与扣款同事务上下文，直接转正备注+补回正流水"""
+        db.add(PurseLedger(delta=cost, reason=reason))
+        await db.commit()
 
     # 让 crina 自己构思要买什么
     plan_prompt = (
@@ -113,11 +127,14 @@ async def buy(db: AsyncSession, kind: str, hint: str, by_nickname: str) -> Wardr
     else:
         prompt = f"一个温馨的小物件静物插画：{plan['prompt']}。柔和暖色，吉卜力式治愈风，干净背景。"
 
-    image = await _gen_image(prompt, ref)
+    try:
+        image = await _gen_image(prompt, ref)
+    except Exception:
+        log.exception("生图请求异常")
+        await _refund("（购置失败退回）")
+        return None
     if not image:
-        # 生图失败：退回预付
-        db.add(PurseLedger(delta=cost, reason="（购置失败退回）"))
-        await db.commit()
+        await _refund("（购置失败退回）")
         return None
 
     item_id = uuid.uuid4()
@@ -142,11 +159,7 @@ async def buy(db: AsyncSession, kind: str, hint: str, by_nickname: str) -> Wardr
                         image_url=f"/assets/{fname}", cost=cost,
                         note=plan.get("reason", "")[:200], wearing=(kind == "outfit"))
     db.add(item)
-    # 预付款转正（更新流水备注）
-    prepaid = (await db.execute(
-        select(PurseLedger).where(PurseLedger.reason == "（预付购置款）")
-        .order_by(PurseLedger.created_at.desc()).limit(1)
-    )).scalar_one()
+    # 预付款转正（就改本次插入的那条流水）
     prepaid.reason = f"购置「{plan['title'][:40]}」"
     # 客厅炫耀
     db.add(Post(author_type="character", author_id="crina",

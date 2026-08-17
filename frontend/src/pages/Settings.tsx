@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   BatteryCharging,
-  Bell,
   CalendarDays,
   DoorOpen,
   Globe,
@@ -37,9 +36,6 @@ function SettingsInner() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [me, setMe] = useState<User | null>(user ?? null)
   const [toast, setToast] = useState('')
-  const [notifyLetter, setNotifyLetter] = useState(true)
-  const [notifyEvent, setNotifyEvent] = useState(true)
-  const [notifyHint, setNotifyHint] = useState('')
 
   useEffect(() => {
     authApi.me().then(setMe).catch(() => {})
@@ -61,22 +57,6 @@ function SettingsInner() {
     const t = setTimeout(() => setToast(''), 5000)
     return () => clearTimeout(t)
   }, [toast])
-
-  const notifyHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(
-    () => () => {
-      if (notifyHintTimer.current) clearTimeout(notifyHintTimer.current)
-    },
-    [],
-  )
-
-  const toggle = (which: 'letter' | 'event') => {
-    if (which === 'letter') setNotifyLetter((v) => !v)
-    else setNotifyEvent((v) => !v)
-    setNotifyHint('先记住你的选择啦，通知功能接通后就生效')
-    if (notifyHintTimer.current) clearTimeout(notifyHintTimer.current)
-    notifyHintTimer.current = setTimeout(() => setNotifyHint(''), 3000)
-  }
 
   const doLogout = async () => {
     await logout()
@@ -164,34 +144,7 @@ function SettingsInner() {
       <GoogleCard />
       <EmindCard />
 
-      {/* 通知偏好 */}
-      <motion.section
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.18 }}
-        className="bg-paper rounded-2xl shadow-card border border-warm-line p-5"
-      >
-        <h2 className="font-title text-lg flex items-center gap-2 mb-4">
-          <Bell className="w-5 h-5 text-tuanman" />
-          想被怎么提醒
-        </h2>
-        <div className="space-y-3">
-          <ToggleRow
-            label="有回信时告诉我"
-            desc="信箱收到居民回信时戳你一下"
-            on={notifyLetter}
-            onToggle={() => toggle('letter')}
-          />
-          <ToggleRow
-            label="日历到点提醒我"
-            desc="事件快到时间时提醒你"
-            on={notifyEvent}
-            onToggle={() => toggle('event')}
-          />
-        </div>
-        {notifyHint && <p className="mt-3 text-xs text-baixu">{notifyHint}</p>}
-      </motion.section>
-
+      {/* 通知偏好（真实生效的开关在「邮箱绑定」卡里） */}
       <TimezoneCard />
 
       {/* 退出 */}
