@@ -13,6 +13,15 @@ here.crina.at「镜听空间」：Alice 模式的人格化云端伙伴空间。�
 - 后台异步任务一律 `app/bg.py` 的 `fire_and_forget`（裸 create_task 会被 GC）。
 - DEBUG=false 时 dev-login 完全关闭；开启时也只允许无 X-Forwarded-For 的直连请求。
 
+## 三期新增（2026-08-18 凌晨）
+- **立绘 v2**：crina/安风/弦墨影 透明底立绘（RGBA webp）。透明底技巧：seedream `background:"transparent"` 需输入图已含透明像素——先给底图加 20px 透明边框再 i2i。脚本 `assets/gen_v2.py`。
+- **弦墨影**：高个中性风妹妹（比秋乐凝高），不是男生。安风形象以 `src_materials/安风自设新图.png`（渐变发尾+左绿右蓝异色瞳+三角面纹）为准，头像用官方透明底常服。
+- **特别的朋友** `soul/characters.py: SPECIAL_FRIENDS`：pinusandy@163.com（安风原型本尊）登录直升老友；build_context 注入本尊到访情境（仅对应角色可见）。
+- **会话文件夹**：Conversation.folder（''=未分组 / 'emind'=旧家导入），导入器自动归档，前端侧栏折叠组。
+- **文件空间** `api/files.py`：用户沙箱文件列表/下载（路径穿越已防护，AGENTS.md/.kimi 不暴露）。
+- **模块拆分**：原 letters.py 拆为 letters（信箱）/events（日历ICS）/archive（记忆+wiki）/files。
+- Alice 更新日志在 `_docs/` 作产品参考。
+
 ## 后端（backend/）
 - Python 3.13 + FastAPI 0.141 + SQLAlchemy 2 async + asyncpg；uv venv（`/root/.local/bin/uv`）。
 - 入口 `app/main.py`，端口 8010，systemd `crina-backend`（`journalctl -u crina-backend -f`）。
