@@ -236,6 +236,15 @@ export const filesApi = {
   list: () => get<FilesResponse>('/api/files'),
   /** 下载地址（同源 cookie 鉴权，直接 <a href download>） */
   url: (path: string) => `/api/files/${path.split('/').map(encodeURIComponent).join('/')}`,
+  read: (path: string) =>
+    get<{ path: string; content: string; truncated: boolean }>(
+      `/api/files/read/${path.split('/').map(encodeURIComponent).join('/')}`,
+    ),
+  write: (path: string, content: string) =>
+    request<{ ok: boolean; path: string; size: number }>(
+      `/api/files/write/${path.split('/').map(encodeURIComponent).join('/')}`,
+      { method: 'PUT', body: JSON.stringify({ content }) },
+    ),
 }
 
 // ---------- 设置扩展（邮箱绑定 / 通知偏好） ----------

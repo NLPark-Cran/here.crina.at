@@ -6,12 +6,15 @@ import {
   ArrowLeft,
   ChevronDown,
   Compass,
+  Hammer,
   Loader2,
+  NotebookPen,
   Package,
   Plus,
   SendHorizonal,
   Trash2,
   Volume2,
+  X,
 } from 'lucide-react'
 import { archiveApi, ApiError, chatApi, fetchTtsAudio, spaceApi, streamChatMessage } from '../api/client'
 import type { Character, ChatMessage, ChatMode, Conversation } from '../api/types'
@@ -36,6 +39,19 @@ const INSPIRATIONS = [
   '最近动态有点多，理一下',
   '有个想法想比较一下优劣',
 ]
+
+/** 干活意图启发式：消息里出现这些词，回复完后提议钉到委托板 */
+const WORK_HINTS = [
+  '帮我写', '帮我做', '帮我整理', '帮我翻译', '帮我查', '帮我改',
+  '写个', '写一篇', '写一个', '做个', '做一个', '做份',
+  '整理成', '总结一下', '翻译成', '代码', '脚本', '爬虫', '小工具',
+  '网页', '网站', '报告', '计划书', 'PPT', '批量', '部署', '修复',
+]
+
+function detectWorkIntent(text: string): boolean {
+  if (text.length < 6) return false
+  return WORK_HINTS.some((k) => text.includes(k))
+}
 
 /** 流式渲染中的气泡 */
 interface StreamBubble {
@@ -112,6 +128,9 @@ function ChatInner() {
   const [newMode, setNewMode] = useState<ChatMode>('auto')
   const [newDraft, setNewDraft] = useState('')
   const [creating, setCreating] = useState(false)
+  /** 流式完成后待提议的「活儿」（crina 智能提议卡片） */
+  const [proposal, setProposal] = useState('')
+  const pendingProposalRef = useRef<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   /** 用户是否贴着消息流底部（贴底才自动跟滚） */
@@ -327,8 +346,25 @@ function ChatInner() {
   const send = () => {
     const content = draft.trim()
     if (!content || !active || streaming) return
+    pendingProposalRef.current = detectWorkIntent(content) ? content : null
+    setProposal('')
     setDraft('')
     void sendTo(active, content)
+  }
+
+  // 流式说完后：若刚才那条像件活儿，递上「钉到委托板」提议卡
+  useEffect(() => {
+    if (!streaming && pendingProposalRef.current) {
+      setProposal(pendingProposalRef.current)
+      pendingProposalRef.current = null
+    }
+  }, [streaming])
+
+  /** 常驻「去书桌」：带着当前输入或最近一句话去委托板 */
+  const goDesk = () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content ?? ''
+    const text = (draft.trim() || lastUser).slice(0, 8000)
+    navigate(text ? `/board?draft=${encodeURIComponent(text)}` : '/board')
   }
 
   const changeMode = async (mode: ChatMode) => {
@@ -580,7 +616,49 @@ function ChatInner() {
 
             {/* 输入框 + 免责声明 */}
             <div className="p-3 border-t border-warm-line">
+              {/* crina 智能提议：这像件活儿 → 一键钉到委托板 */}
+              <AnimatePresence>
+                {proposal && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={{ opacity: 0, y: 8, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-qiule/30 bg-qiule/8 px-3.5 py-2.5">
+                      <Hammer className="w-4 h-4 text-qiule shrink-0" />
+                      <p className="flex-1 min-w-0 text-xs text-ink-soft leading-relaxed">
+                        这听起来像件活儿——要钉到委托板，让 crina 正儿八经施工吗？
+                      </p>
+                      <button
+                        onClick={() => {
+                          navigate(`/board?draft=${encodeURIComponent(proposal)}`)
+                          setProposal('')
+                        }}
+                        className="btn-press shrink-0 text-xs px-3 py-1.5 rounded-lg bg-crina text-white hover:bg-crina-deep"
+                      >
+                        钉到委托板
+                      </button>
+                      <button
+                        onClick={() => setProposal('')}
+                        aria-label="忽略"
+                        className="btn-press shrink-0 p-1.5 rounded-lg text-ink-soft/60 hover:text-ink"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <div className="flex items-end gap-2">
+                <button
+                  onClick={goDesk}
+                  title="去书桌：带着这句话去委托板"
+                  aria-label="去书桌"
+                  className="btn-press p-3 rounded-full border border-warm-line text-ink-soft hover:text-crina-deep hover:border-crina/50 shrink-0"
+                >
+                  <NotebookPen className="w-4 h-4" />
+                </button>
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
@@ -41,6 +42,47 @@ async def list_files(user: User = Depends(get_current_user), db: AsyncSession = 
             })
     files.sort(key=lambda f: f["mtime"], reverse=True)
     return {"files": files[:200]}
+
+
+# ---------- 轻 IDE：在线读/写（注意：必须声明在 /{path:path} 下载路由之前） ----------
+
+READ_MAX = 512 * 1024   # 超出只给前 512KB
+WRITE_MAX = 1024 * 1024  # 写入上限 1MB
+
+
+def _resolve_text_target(user: User, path: str) -> Path:
+    root = _sandbox(user).resolve()
+    target = (root / path).resolve()
+    if not str(target).startswith(str(root)) or target.name in IGNORE or ".kimi" in target.parts:
+        raise HTTPException(404, "文件不存在")
+    return target
+
+
+@router.get("/read/{path:path}")
+async def read_file(path: str, user: User = Depends(get_current_user)):
+    target = _resolve_text_target(user, path)
+    if not target.is_file():
+        raise HTTPException(404, "文件不存在")
+    if target.stat().st_size > READ_MAX * 4:
+        raise HTTPException(413, "文件太大了，还是下载下来看吧")
+    raw = target.read_bytes()[: READ_MAX + 1]
+    try:
+        content = raw[:READ_MAX].decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(415, "这不是文本文件，直接下载吧") from None
+    return {"path": path, "content": content, "truncated": len(raw) > READ_MAX}
+
+
+class WriteBody(BaseModel):
+    content: str = Field(max_length=WRITE_MAX)
+
+
+@router.put("/write/{path:path}")
+async def write_file(path: str, body: WriteBody, user: User = Depends(get_current_user)):
+    target = _resolve_text_target(user, path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body.content, encoding="utf-8")
+    return {"ok": True, "path": path, "size": target.stat().st_size}
 
 
 @router.get("/{path:path}")

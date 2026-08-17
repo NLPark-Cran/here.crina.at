@@ -34,7 +34,7 @@ Agent 沙箱: /var/crina/users/<uid>/sandbox（+ kimi.toml 代理配置 + tasks/
 **events**：GET/POST/DELETE events（naive 时间按 CST+8）；GET events/ics-url（JWT 订阅链接）；GET events.ics?token=
 **archive**：GET memories / DELETE memories/{id}；GET wiki（未登录仅 public）；POST wiki/extract {conversation_id,public}
 **agent（委托板）**：POST agent/tasks {title,prompt,target:sandbox|renovate(仅主人)}；GET agent/tasks[/{id}]；POST agent/tasks/{id}/cancel（仅 queued）；GET agent/tasks/{id}/stream → SSE（回放 jsonl+实时广播；事件：started/text/tool_start/tool_end/finished/error/closed/eof/ping）
-**files**：GET files（沙箱文件列表）；GET files/{path}（下载，防穿越）
+**files**：GET files（沙箱文件列表）；GET files/{path}（下载，防穿越）；GET files/read/{path}（文本读取≤512KB）；PUT files/write/{path}（写入≤1MB）——read/write 必须声明在下载通配路由之前
 **byok**：GET byok/status；GET byok/connect → TokenDance OAuth(S256) → GET byok/callback（存加密 api_key）；DELETE byok；Google 同构（byok/google/*，需 GOOGLE_CLIENT_ID）
 **settings**：POST settings/email/send-code|verify（6 位码 10min，错 5 次作废）；POST settings/notify {notify_email}；POST settings/timezone {timezone}（IANA 名，zoneinfo 校验）
 **importer**：GET import/emind/status；POST import/emind（邮箱匹配 eastmind 库，title 前缀幂等+30min 冷却）
@@ -89,5 +89,6 @@ usage_counters(user_id+day+kind uniq, count) 配额原子计数
 🚧 进行中：记忆大扫除/晚安信记忆汇报/邮件 From 显示名（R1 未完）
 ✅ R1 记忆系统（ops+evidence、大扫除、晚安信汇报新记忆、发件人显示名）+ 用户时区（问候信/提醒按用户当地时间触发：greet_tick 每小时轮询各时区 8 点/22 点）
 ✅ R2 streamdown 2.5 渲染（components/Markdown.tsx 统一封装；plugins code/math/cjk；聊天气泡/档案馆/信箱/委托汇报全接入；katex.min.css + index.css @source 指令 + shadcn 变量映射暖纸色；shiki/mermaid 按需 chunk；MarkdownLite 已删除）
-📋 待做（按序）：R3 书桌工作台+轻IDE / R4 小屋剖面地图 / R5 设计系统升级 / R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
+✅ R3 书桌工作台：聊天常驻「去书桌」按钮（带当前输入/最近一句→/board?draft= 预填小纸条）+ 干活意图启发式提议卡（WORK_HINTS 关键词→流式完成后弹「钉到委托板」卡片，可忽略）+ 轻IDE（文件空间打开文本文件：md 用 streamdown 渲染/代码等宽，编辑保存 PUT /files/write，「让 crina 接着改」预填委托）
+📋 待做（按序）：R3.5 独响启发（状态墙/关系数值活化/串门事件/专注陪伴模式，调研存 docs/research/duxiang-ai-moments.md）/ R4 小屋剖面地图 / R5 设计系统升级 / R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
 📚 调研存档：docs/research/duxiang-ai-moments.md（独响 App 全拆解：异步朋友圈节奏/七层关系数值/一起入睡/情绪兜底猫/居民互相串门）
