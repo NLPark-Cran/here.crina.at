@@ -19,7 +19,7 @@ function PageLoading() {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-ink-soft">
       <div className="w-8 h-8 rounded-full border-2 border-crina/30 border-t-crina animate-spin" />
-      <p className="mt-4 text-sm">搬椅子上楼中…</p>
+      <p className="mt-4 text-sm">推门进去中…</p>
     </div>
   )
 }

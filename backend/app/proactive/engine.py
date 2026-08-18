@@ -47,17 +47,38 @@ HOLIDAYS = {
 
 
 async def job_presence():
-    """每 20 分钟轮转在场状态"""
+    """每 20 分钟轮转在场状态：有今日剧本就按当前事件走（同一状态机，防瞬移），否则退回随机池。
+    事件文本→短状态用 LLM 浓缩一次后按活动缓存，同一事件不重复调用。"""
     from ..api.space import DEFAULT_STATUS
     r = get_redis()
     hour = datetime.now(CST).hour
     async with SessionLocal() as db:
         chars = (await db.execute(select(Character).where(Character.active == True))).scalars().all()  # noqa: E712
         for c in chars:
-            options = DEFAULT_STATUS.get(c.id, ["在空间里待着"])
-            if c.id == "xianmoying" and 7 <= hour < 23:
+            state = await dayplan.current_state(db, c.id) if c.id != "guagua" else None
+            if state:
+                ev = state["event"]
+                craft_key = f"presence:craft:{c.id}"
+                cached = (await r.get(craft_key)) or ""
+                cached_act, _, cached_text = cached.partition("|")
+                if cached_act == ev["activity"] and cached_text:
+                    status = cached_text
+                else:
+                    try:
+                        status = (await tokendance.chat_once(
+                            [{"role": "user", "content": (
+                                f"把「在{ev['location']}：{ev['activity']}」浓缩成一条 10 字以内的在场状态短语，"
+                                f"以「在」开头，口语自然，只输出短语本身。你是{c.name}。"
+                            )}], temperature=0.5, max_tokens=20)).strip().strip('"「」*_ ')[:16]
+                    except Exception:
+                        status = ""
+                    if not status:
+                        status = f"在{ev['location']}"
+                    await r.setex(craft_key, 86400, f"{ev['activity']}|{status}")
+            elif c.id == "xianmoying" and 7 <= hour < 23:
                 status = "在睡觉（夜行者，凌晨才醒）"
             else:
+                options = DEFAULT_STATUS.get(c.id, ["在空间里待着"])
                 status = random.choice(options)
             await r.setex(f"presence:{c.id}", 1500, status)
     log.debug("presence 已轮转")

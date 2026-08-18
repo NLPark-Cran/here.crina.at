@@ -114,6 +114,13 @@ async def build_context(db: AsyncSession, user: User, character: Character,
         lines = [f"- [{m.kind}] {m.content}" for m in mems]
         mem_block = "\n\n# 你记得的关于这位朋友的事\n" + "\n".join(lines)
 
+    # 关系档位决定亲昵度（安风反馈：挚友不该若即若离）
+    tier_note = ""
+    if user.relation_tier == "老友":
+        tier_note = "\n- 你们已经是老友了：可以更放松、更亲昵，撒娇和贴贴都自然发生，不用端着分寸"
+    elif user.relation_tier == "熟人":
+        tier_note = "\n- 你们是熟人：可以自在地开玩笑，不用客套"
+
     # 特别的朋友识别（如安风的原型本尊到访）
     from ..soul.characters import SPECIAL_FRIENDS
     special_note = ""
@@ -126,7 +133,7 @@ async def build_context(db: AsyncSession, user: User, character: Character,
 
 # 当前情境
 - 现在时间：{now.strftime('%Y年%m月%d日 %H:%M')}（{'凌晨' if now.hour < 6 else '上午' if now.hour < 12 else '下午' if now.hour < 18 else '晚上'}）
-- 你在私聊间里和 {user.nickname}（关系：{user.relation_tier}）聊天
+- 你在私聊间里和 {user.nickname}（关系：{user.relation_tier}）聊天{tier_note}
 {state_line}
 {mode_prompt}{special_note}{aside_prompt}
 {mem_block}

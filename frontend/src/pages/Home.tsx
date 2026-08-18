@@ -137,7 +137,7 @@ export function HomePage() {
             className="relative h-full"
           >
             <img
-              src="/assets/crina_full.webp"
+              src="/assets/crina_full.webp?v=2"
               alt={crina?.name ?? 'crina'}
               className="h-full w-auto object-contain drop-shadow-[0_18px_32px_rgba(61,74,107,0.35)]"
               onError={(e) => {
