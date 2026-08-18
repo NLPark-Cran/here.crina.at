@@ -76,8 +76,10 @@ async def _stream_character(db: AsyncSession, user: User, character: Character,
     ctx = await memory.build_context(db, user, character, conversation, mode)
     if round_note:
         ctx.append({"role": "user", "content": round_note})
+    # 探讨模式开思考（回答更扎实）；闲聊保持秒回的活人感
+    budget = settings.chat_thinking_budget if mode in ("brainstorm", "guide", "probe", "extract") else 0
     full = ""
-    async for delta in tokendance.chat_stream(ctx, api_key=api_key):
+    async for delta in tokendance.chat_stream(ctx, api_key=api_key, thinking_budget=budget):
         full += delta
         yield "delta", delta
     msg = Message(conversation_id=conversation.id, role="character",
@@ -88,7 +90,7 @@ async def _stream_character(db: AsyncSession, user: User, character: Character,
 
 
 async def stream_reply(conversation_id: str, user: User, content: str,
-                       db: AsyncSession) -> AsyncGenerator[str, None]:
+                       db: AsyncSession, doc_context: str = "") -> AsyncGenerator[str, None]:
     """主入口：SSE 事件流"""
     import uuid as _uuid
     try:
@@ -120,7 +122,7 @@ async def stream_reply(conversation_id: str, user: User, content: str,
 
     main_char = (await db.execute(select(Character).where(Character.id == conversation.character_id))).scalar_one()
     mode = conversation.mode
-    exchange: list[dict] = [{"role": "user", "content": content}]
+    exchange: list[dict] = [{"role": "user", "content": content + doc_context}]
 
     try:
         if mode == "brainstorm":

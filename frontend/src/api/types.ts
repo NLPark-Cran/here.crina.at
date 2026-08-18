@@ -108,6 +108,15 @@ export interface Letter {
   created_at: string
 }
 
+export interface SpaceDoc {
+  id: string
+  filename: string
+  kind: string  // pdf / docx / image
+  chars: number
+  preview?: string
+  created_at: string
+}
+
 // ---------- 档案馆 ----------
 export type MemoryKind = 'fact' | 'preference' | 'summary' | string
 

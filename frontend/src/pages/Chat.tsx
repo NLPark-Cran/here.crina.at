@@ -10,6 +10,7 @@ import {
   Loader2,
   NotebookPen,
   Package,
+  Paperclip,
   Plus,
   SendHorizonal,
   Timer,
@@ -17,8 +18,8 @@ import {
   Volume2,
   X,
 } from 'lucide-react'
-import { archiveApi, ApiError, chatApi, fetchTtsAudio, spaceApi, streamChatMessage } from '../api/client'
-import type { Character, ChatMessage, ChatMode, Conversation } from '../api/types'
+import { archiveApi, ApiError, chatApi, docsApi, fetchTtsAudio, spaceApi, streamChatMessage } from '../api/client'
+import type { Character, ChatMessage, ChatMode, Conversation, SpaceDoc } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { CharacterAvatar } from '../components/CharacterAvatar'
 import { Markdown } from '../components/Markdown'
@@ -132,6 +133,10 @@ function ChatInner() {
   /** 流式完成后待提议的「活儿」（crina 智能提议卡片） */
   const [proposal, setProposal] = useState('')
   const pendingProposalRef = useRef<string | null>(null)
+  /** 文档引用：已上传文档列表 + 本条消息附带的文档 */
+  const [docs, setDocs] = useState<SpaceDoc[]>([])
+  const [attached, setAttached] = useState<SpaceDoc[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   /** 用户是否贴着消息流底部（贴底才自动跟滚） */
@@ -172,7 +177,7 @@ function ChatInner() {
   }, [toast])
 
   const sendTo = useCallback(
-    async (conv: Conversation, content: string) => {
+    async (conv: Conversation, content: string, docIds: string[] = []) => {
       if (!content) return
       if (streaming) {
         // 上一段还在流式输出：不能静默丢弃——挂回 pendingFirst，流式结束后自动补发
@@ -238,6 +243,7 @@ function ChatInner() {
           }
         },
         ctrl.signal,
+        docIds,
       ).catch((e) => {
         if (!ctrl.signal.aborted && e instanceof Error && e.name !== 'AbortError') {
           setError(e instanceof ApiError ? e.message : '话说到一半断了，再发一次试试？')
@@ -351,7 +357,16 @@ function ChatInner() {
     pendingProposalRef.current = detectWorkIntent(content) ? content : null
     setProposal('')
     setDraft('')
-    void sendTo(active, content)
+    const docIds = attached.map((d) => d.id)
+    setAttached([])
+    void sendTo(active, content, docIds)
+  }
+
+  const openPicker = () => {
+    setPickerOpen((v) => !v)
+    if (!pickerOpen && docs.length === 0) {
+      docsApi.list().then((d) => setDocs(d.docs)).catch(() => {})
+    }
   }
 
   // 流式说完后：补发被挡住的首条消息；若刚才那条像件活儿，递上「钉到委托板」提议卡
@@ -661,7 +676,87 @@ function ChatInner() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              {/* 附带文档 chips */}
+              {attached.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {attached.map((d) => (
+                    <span
+                      key={d.id}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-xianmo/10 text-xianmo"
+                    >
+                      <Paperclip className="w-3 h-3" />
+                      {d.filename}
+                      <button
+                        onClick={() => setAttached((a) => a.filter((x) => x.id !== d.id))}
+                        aria-label={`取下 ${d.filename}`}
+                        className="hover:text-anfeng"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex items-end gap-2">
+                {/* 引用文档 */}
+                <div className="relative shrink-0">
+                  <button
+                    onClick={openPicker}
+                    title="附上文档（先去委托板上传）"
+                    aria-label="附上文档"
+                    className={`btn-press p-3 rounded-full border shrink-0 ${
+                      pickerOpen || attached.length > 0
+                        ? 'border-xianmo/50 text-xianmo bg-xianmo/8'
+                        : 'border-warm-line text-ink-soft hover:text-crina-deep hover:border-crina/50'
+                    }`}
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
+                  <AnimatePresence>
+                    {pickerOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setPickerOpen(false)} />
+                        <motion.div
+                          initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute left-0 bottom-full mb-2 z-50 w-72 max-h-64 overflow-y-auto bg-paper/90 backdrop-blur-md rounded-2xl shadow-float border border-warm-line p-1.5"
+                        >
+                          {docs.length === 0 && (
+                            <p className="px-3 py-4 text-xs text-ink-soft text-center leading-relaxed">
+                              还没有文档——去委托板底部的「我的文档」上传 PDF/DOCX/图片，
+                              就能在这里附给居民看啦。
+                            </p>
+                          )}
+                          {docs.map((d) => {
+                            const on = attached.some((x) => x.id === d.id)
+                            return (
+                              <button
+                                key={d.id}
+                                onClick={() =>
+                                  setAttached((a) =>
+                                    on ? a.filter((x) => x.id !== d.id) : a.length >= 3 ? a : [...a, d],
+                                  )
+                                }
+                                className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${
+                                  on ? 'bg-xianmo/10' : 'hover:bg-cream'
+                                }`}
+                              >
+                                <span className={`text-sm ${on ? 'text-xianmo font-medium' : ''}`}>
+                                  {d.filename}
+                                </span>
+                                <span className="block text-[11px] text-ink-soft mt-0.5 truncate">
+                                  {d.chars > 0 ? `${d.chars} 字 · ${d.preview ?? ''}` : '没读出文字（可能是扫描件）'}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
                 <button
                   onClick={goDesk}
                   title="去书桌：带着这句话去委托板"

@@ -13,6 +13,7 @@ from .api import (
     auth,
     byok,
     chat,
+    docs,
     events,
     files,
     importer,
@@ -59,6 +60,7 @@ app.include_router(space.router, prefix=settings.api_prefix)
 app.include_router(posts.router, prefix=settings.api_prefix)
 app.include_router(letters.router, prefix=settings.api_prefix)
 app.include_router(events.router, prefix=settings.api_prefix)
+app.include_router(docs.router, prefix=settings.api_prefix)
 app.include_router(archive.router, prefix=settings.api_prefix)
 app.include_router(files.router, prefix=settings.api_prefix)
 app.include_router(byok.router, prefix=settings.api_prefix)

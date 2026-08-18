@@ -23,8 +23,9 @@ def _headers(api_key: str) -> dict:
 async def chat_stream(messages: list[dict], api_key: str | None = None,
                       model: str | None = None, temperature: float = 0.9,
                       presence_penalty: float = 0.2, max_tokens: int = 2048,
-                      enable_thinking: bool = False) -> AsyncGenerator[str, None]:
-    """流式对话，逐段产出 content delta"""
+                      enable_thinking: bool = False,
+                      thinking_budget: int = 0) -> AsyncGenerator[str, None]:
+    """流式对话，逐段产出 content delta；thinking_budget>0 时开思考并给定预算"""
     key = api_key or settings.tokendance_api_key
     body = {
         "model": model or settings.chat_model,
@@ -33,8 +34,10 @@ async def chat_stream(messages: list[dict], api_key: str | None = None,
         "presence_penalty": presence_penalty,
         "max_tokens": max_tokens,
         "stream": True,
-        "enable_thinking": enable_thinking,
+        "enable_thinking": enable_thinking or thinking_budget > 0,
     }
+    if thinking_budget > 0:
+        body["thinking_budget"] = thinking_budget
     async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15)) as client:
         async with client.stream("POST", f"{settings.tokendance_base_url}/chat/completions",
                                  headers=_headers(key), json=body) as resp:

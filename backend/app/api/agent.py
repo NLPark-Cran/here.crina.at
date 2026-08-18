@@ -24,6 +24,7 @@ class CreateTask(BaseModel):
     title: str = Field(min_length=1, max_length=128)
     prompt: str = Field(min_length=1, max_length=8000)
     target: str = "sandbox"  # sandbox / renovate（空间装修，仅主人）
+    doc_ids: list[str] = Field(default_factory=list, max_length=3)  # 引用已上传文档
 
 
 def task_out(t: AgentTask) -> dict:
@@ -45,7 +46,13 @@ async def create_task(body: CreateTask, user: User = Depends(get_current_user),
         await chat_engine.check_and_count_quota(db, user, "agent", is_byok)
     except chat_engine.QuotaExceeded:
         raise HTTPException(429, "今日委托次数用完啦，接入词元蓄电池可不限量（设置 → 词元蓄电池）") from None
-    task = AgentTask(user_id=user.id, title=body.title, prompt=body.prompt, target=body.target)
+    prompt = body.prompt
+    if body.doc_ids:
+        from .docs import load_doc_context
+        doc_ctx = await load_doc_context(db, user, body.doc_ids)
+        if doc_ctx:
+            prompt = (prompt + doc_ctx)[:8000]
+    task = AgentTask(user_id=user.id, title=body.title, prompt=prompt, target=body.target)
     db.add(task)
     await db.commit()
     fire_and_forget(pool.execute_task(str(task.id)))

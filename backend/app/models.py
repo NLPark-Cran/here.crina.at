@@ -185,6 +185,20 @@ class Letter(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class Document(Base):
+    """用户上传的文档（PDF/DOCX/图片 → 提取文本，可被聊天/委托引用）"""
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(16))  # pdf / docx / image
+    path: Mapped[str] = mapped_column(String(512))  # 沙箱内相对路径
+    text: Mapped[str] = mapped_column(Text, default="")  # 提取出的文本
+    chars: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class WikiPage(Base):
     """档案馆 · 探讨沉淀"""
     __tablename__ = "wiki_pages"

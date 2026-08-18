@@ -16,6 +16,7 @@ import type {
   Memory,
   Post,
   PresenceMap,
+  SpaceDoc,
   SpaceEvent,
   TaskStreamEvent,
   TaskTarget,
@@ -157,12 +158,13 @@ export async function streamChatMessage(
   content: string,
   onEvent: (ev: ChatStreamEvent) => void,
   signal?: AbortSignal,
+  docIds?: string[],
 ): Promise<void> {
   const res = await fetch(`/api/chat/conversations/${convId}/messages`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, doc_ids: docIds ?? [] }),
     signal,
   })
   await readSseStream(res, onEvent, '发送失败')
@@ -245,6 +247,45 @@ export const filesApi = {
       `/api/files/write/${path.split('/').map(encodeURIComponent).join('/')}`,
       { method: 'PUT', body: JSON.stringify({ content }) },
     ),
+}
+
+// ---------- 文档处理 ----------
+export const docsApi = {
+  list: () => get<{ docs: SpaceDoc[] }>('/api/docs'),
+  upload: async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/docs/upload', { method: 'POST', credentials: 'include', body: fd })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new ApiError(res.status, data.detail || '上传失败')
+    }
+    return (await res.json()) as SpaceDoc & { message: string }
+  },
+  remove: (id: string) => del<{ ok: boolean }>(`/api/docs/${id}`),
+  /** 导出 docx/pdf（blob 下载） */
+  export: async (body: { doc_id?: string; path?: string; format: 'docx' | 'pdf'; title?: string }) => {
+    const res = await fetch('/api/docs/export', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new ApiError(res.status, data.detail || '导出失败')
+    }
+    const blob = await res.blob()
+    const cd = res.headers.get('Content-Disposition') ?? ''
+    const m = /filename\*=UTF-8''([^;]+)/.exec(cd)
+    const name = m ? decodeURIComponent(m[1]) : `export.${body.format}`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  },
 }
 
 // ---------- 设置扩展（邮箱绑定 / 通知偏好） ----------

@@ -26,6 +26,7 @@ class CreateConversation(BaseModel):
 
 class SendMessage(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+    doc_ids: list[str] = Field(default_factory=list, max_length=3)  # 引用已上传文档
 
 
 class SetMode(BaseModel):
@@ -121,8 +122,10 @@ async def delete_conversation(conv_id: str, user: User = Depends(get_current_use
 @router.post("/conversations/{conv_id}/messages")
 async def send_message(conv_id: str, body: SendMessage, user: User = Depends(get_current_user),
                        db: AsyncSession = Depends(get_db)):
+    from .docs import load_doc_context
+    doc_ctx = await load_doc_context(db, user, body.doc_ids)
     return StreamingResponse(
-        engine.stream_reply(conv_id, user, body.content, db),
+        engine.stream_reply(conv_id, user, body.content, db, doc_ctx),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

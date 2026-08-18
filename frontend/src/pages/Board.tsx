@@ -14,12 +14,15 @@ import {
   PenLine,
   Pin,
   Save,
+  Upload,
+  FileDown,
+  Trash2,
   WandSparkles,
   X,
   XCircle,
 } from 'lucide-react'
-import { agentApi, ApiError, filesApi, streamTask } from '../api/client'
-import type { AgentTask, SpaceFile, TaskStatus } from '../api/types'
+import { agentApi, ApiError, docsApi, filesApi, streamTask } from '../api/client'
+import type { AgentTask, SpaceDoc, SpaceFile, TaskStatus } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { EmptyState } from '../components/EmptyState'
 import { Markdown } from '../components/Markdown'
@@ -271,6 +274,9 @@ function BoardInner() {
 
       {/* 我的文件空间（轻 IDE） */}
       <FileSpace nonce={filesNonce} onContinue={continueWithCrina} />
+
+      {/* 我的文档：上传→提取→可附到聊天/委托 */}
+      <DocsSection />
     </div>
   )
 }
@@ -482,6 +488,26 @@ function FileEditor({
             <WandSparkles className="w-3.5 h-3.5" />
             让 crina 接着改
           </button>
+          {/\.(md|markdown|txt)$/i.test(file.name) && (
+            <>
+              <button
+                onClick={() => docsApi.export({ path: file.path, format: 'docx' }).catch(() => {})}
+                title="导出为 Word"
+                className="btn-press inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-warm-line text-ink-soft hover:text-crina-deep"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                docx
+              </button>
+              <button
+                onClick={() => docsApi.export({ path: file.path, format: 'pdf' }).catch(() => {})}
+                title="导出为 PDF"
+                className="btn-press inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-warm-line text-ink-soft hover:text-crina-deep"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                pdf
+              </button>
+            </>
+          )}
           {editing ? (
             <button
               onClick={save}
@@ -780,5 +806,134 @@ function TaskCard({
         )}
       </AnimatePresence>
     </motion.div>
+  )
+}
+
+/** 我的文档：上传 PDF/DOCX/图片 → 提取文本 → 可在私聊/委托里引用 */
+function DocsSection() {
+  const [docs, setDocs] = useState<SpaceDoc[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const load = useCallback(() => {
+    docsApi
+      .list()
+      .then((d) => setDocs(d.docs))
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [])
+
+  useEffect(load, [load])
+
+  useEffect(() => {
+    if (!msg) return
+    const t = setTimeout(() => setMsg(''), 5000)
+    return () => clearTimeout(t)
+  }, [msg])
+
+  const onPick = async (f: File | undefined) => {
+    if (!f || busy) return
+    setBusy(true)
+    try {
+      const res = await docsApi.upload(f)
+      setMsg(res.message)
+      load()
+    } catch (e) {
+      setMsg(e instanceof ApiError ? e.message : '上传失败了，再试一次？')
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const remove = async (id: string) => {
+    try {
+      await docsApi.remove(id)
+      setDocs((d) => d.filter((x) => x.id !== id))
+    } catch {
+      setMsg('没删掉，再试一次？')
+    }
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.2 }}
+      className="mt-8 bg-paper rounded-2xl shadow-card border border-warm-line p-5"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-title text-lg flex items-center gap-2">
+            <FileText className="w-5 h-5 text-xianmo" />
+            我的文档
+          </h2>
+          <p className="mt-1 text-xs text-ink-soft">
+            上传 PDF / DOCX / 图片，crina 会读出内容——私聊和委托里都能附上引用。
+          </p>
+        </div>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          className="btn-press shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-xianmo text-white text-sm hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          {busy ? '读取中…' : '上传'}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.docx,.png,.jpg,.jpeg,.webp"
+          className="hidden"
+          onChange={(e) => onPick(e.target.files?.[0])}
+        />
+      </div>
+      {msg && <p className="mt-3 text-xs text-baixu">{msg}</p>}
+
+      <div className="mt-4">
+        {loaded && docs.length === 0 && (
+          <p className="text-sm text-ink-soft text-center py-6 leading-relaxed">
+            还没有文档——把观鸟 PDF、课程资料、截图传上来，聊天时点 📎 就能给居民看。
+          </p>
+        )}
+        <div className="space-y-1">
+          {docs.map((d) => (
+            <div
+              key={d.id}
+              className="group flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-cream transition-colors"
+            >
+              <span className="w-10 h-10 rounded-lg bg-cream border border-warm-line flex items-center justify-center shrink-0">
+                <FileText className="w-4.5 h-4.5 text-xianmo" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm truncate">{d.filename}</div>
+                <div className="text-xs text-ink-soft/80 truncate">
+                  {d.kind.toUpperCase()} · {d.chars > 0 ? `${d.chars} 字` : '未提取到文字'} ·{' '}
+                  {relativeTime(d.created_at)}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => docsApi.export({ doc_id: d.id, format: 'docx' }).catch(() => {})}
+                  title="导出 docx"
+                  className="btn-press p-1.5 rounded-lg text-ink-soft/60 hover:text-crina-deep"
+                >
+                  <FileDown className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => remove(d.id)}
+                  title="删除"
+                  className="btn-press p-1.5 rounded-lg text-ink-soft/60 hover:text-anfeng"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </motion.section>
   )
 }
