@@ -79,6 +79,7 @@ class Character(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     status_text: Mapped[str] = mapped_column(String(16), default="")  # 状态墙：2-6 字当下状态，调度器每 4-10h 换新
     status_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    mood_note: Mapped[str] = mapped_column(String(200), default="")  # 情感日记产出的「行为指引」，注入私聊 prompt
 
 
 class Conversation(Base):
@@ -181,6 +182,20 @@ class PostFavorite(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
     post_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Diary(Base):
+    """居民的第一人称情感日记（AI 的隐私：无用户可见 API，只产出 mood_note 行为指引）"""
+    __tablename__ = "diaries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    character_id: Mapped[str] = mapped_column(String(32), ForeignKey("characters.id"), index=True)
+    event_kind: Mapped[str] = mapped_column(String(16), default="chat")  # chat / gift / daily / system
+    content: Mapped[str] = mapped_column(Text)  # 第一人称
+    mood_direction: Mapped[str] = mapped_column(String(8), default="flat")  # up / down / flat
+    intensity: Mapped[int] = mapped_column(Integer, default=3)  # 1-5
+    trigger_ref: Mapped[str] = mapped_column(Text, default="")  # 触发上下文摘要
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

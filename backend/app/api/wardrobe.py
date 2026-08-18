@@ -40,6 +40,11 @@ class Fund(BaseModel):
 async def give_fund(body: Fund, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """给 crina 塞零花钱"""
     balance = await wardrobe.fund(db, body.amount, f"{user.nickname} 塞的零花钱")
+    from ..engine import diary
+    await diary.record(db, "crina", "gift",
+                       f"{user.nickname} 给我塞了 {body.amount} 镜币零花钱。攒着攒着，想买的东西又近了一点。",
+                       mood="up", intensity=3, trigger=f"{user.nickname} 塞零花钱")
+    await db.commit()
     return {"ok": True, "balance": balance, "message": f"塞给 crina {body.amount} 镜币，她眼睛都亮了"}
 
 
@@ -51,6 +56,12 @@ class Wish(BaseModel):
 async def _buy_bg(kind: str, hint: str, nickname: str):
     async with SessionLocal() as db:
         await wardrobe.buy(db, kind, hint, nickname)
+        from ..engine import diary
+        what = "新衣服" if kind == "outfit" else "新摆件"
+        await diary.record(db, "crina", "gift",
+                           f"{nickname} 给我买了{what}！今天就换上/摆上。被人在意的感觉，真好。",
+                           mood="up", intensity=4, trigger=f"{nickname} 提议购置 {kind}")
+        await db.commit()
 
 
 @router.post("/wish")

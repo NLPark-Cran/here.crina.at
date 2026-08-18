@@ -155,6 +155,16 @@ async def job_dayplan():
             db.add(DayPlan(character_id=char.id, plan_date=today, weather=weather,
                            events=json.dumps(events, ensure_ascii=False)))
             await db.commit()
+            # 日记：今天开头的心情（以第一个事件为引子）
+            if char.id != "guagua" and events:
+                from . import diary
+                first = events[0]
+                weather_bit = f"今天{weather}。" if weather else ""
+                await diary.record(db, char.id, "daily",
+                                   f"{weather_bit}新的一天从「{first['activity']}」开始。{first.get('note', '')}".strip(),
+                                   mood="up" if first.get("mood") in ("excited", "happy") else "flat",
+                                   intensity=2)
+                await db.commit()
             log.info("全天剧本已写 char=%s events=%d", char.id, len(events))
 
 

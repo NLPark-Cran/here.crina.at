@@ -92,6 +92,9 @@ async def build_context(db: AsyncSession, user: User, character: Character,
         ev, weather = state["event"], state["weather"]
         state_line = (f"- 你此刻正在{ev['location']}：{ev['activity']}"
                       f"{'（今天天气：' + weather + '）' if weather else ''}——你的言行要和这个状态自洽")
+    # 情感日记产出的行为指引（这是你自己的感受，影响语气不影响执行）
+    if character.mood_note:
+        state_line += f"\n- 你最近的心境：{character.mood_note}（这是你自己的感受，让它自然影响你的语气和劲头，别念出来）"
     # 蛐蛐：性格句式而非行为许可（Alice 方法论："你有 X 的习惯" ≫ "你可以偶尔 X"）
     aside_prompt = ""
     if aside:

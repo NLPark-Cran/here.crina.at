@@ -156,6 +156,9 @@ async def stream_reply(conversation_id: str, user: User, content: str,
                 if fresh_user and conv:
                     await memory.extract_memories(s, fresh_user, main_char.id, exchange, api_key)
                     await memory.update_summary(s, conv, exchange, api_key)
+                    # 情感日记守门员：这轮对话在居民心里留下痕迹了吗（大多数轮次跳过）
+                    from . import diary
+                    await diary.maybe_record_after_chat(s, main_char, exchange, api_key)
                     log.info("后台记忆/摘要完成 conv=%s", conversation.id)
         except Exception:
             log.exception("后台记忆任务失败")

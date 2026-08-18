@@ -22,7 +22,7 @@ from sqlalchemy import desc, select
 from ..cache import get_redis
 from ..config import get_settings
 from ..db import SessionLocal
-from ..engine import dayplan, tokendance
+from ..engine import dayplan, diary, tokendance
 from ..models import Character, Event, Letter, Post, User
 from ..soul.characters import WORLD
 from . import email as mailer
@@ -433,6 +433,8 @@ def start_scheduler():
     # 全天剧本：每天凌晨 04:30 批量写；启动时也跑一次（幂等，已有今日剧本则跳过）
     _scheduler.add_job(job_dayplan_wrapper, CronTrigger(hour=4, minute=30), id="dayplan",
                        next_run_time=datetime.now(CST) + timedelta(minutes=2))
+    # 情感日记汇总：每天午后/晚间各一次，产出 mood_note 行为指引
+    _scheduler.add_job(diary.job_mood_digest, CronTrigger(hour="13,21", minute=40), id="mood_digest")
     _scheduler.start()
     log.info("主动性引擎已启动")
 
