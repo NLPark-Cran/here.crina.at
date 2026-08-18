@@ -83,6 +83,15 @@ async def build_context(db: AsyncSession, user: User, character: Character,
         summary_block = f"\n\n# 到目前为止你们聊过的（摘要）\n{conversation.summary}"
 
     mode_prompt = MODE_PROMPTS.get(mode, "")
+
+    # DayPlan：居民此刻正在做的事（同一状态机，防瞬移）
+    from . import dayplan
+    state_line = ""
+    state = await dayplan.current_state(db, character.id)
+    if state:
+        ev, weather = state["event"], state["weather"]
+        state_line = (f"- 你此刻正在{ev['location']}：{ev['activity']}"
+                      f"{'（今天天气：' + weather + '）' if weather else ''}——你的言行要和这个状态自洽")
     # 蛐蛐：性格句式而非行为许可（Alice 方法论："你有 X 的习惯" ≫ "你可以偶尔 X"）
     aside_prompt = ""
     if aside:
@@ -115,6 +124,7 @@ async def build_context(db: AsyncSession, user: User, character: Character,
 # 当前情境
 - 现在时间：{now.strftime('%Y年%m月%d日 %H:%M')}（{'凌晨' if now.hour < 6 else '上午' if now.hour < 12 else '下午' if now.hour < 18 else '晚上'}）
 - 你在私聊间里和 {user.nickname}（关系：{user.relation_tier}）聊天
+{state_line}
 {mode_prompt}{special_note}{aside_prompt}
 {mem_block}
 {summary_block}

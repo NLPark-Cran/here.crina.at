@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
 from datetime import UTC, datetime, timedelta, timezone
@@ -21,7 +22,7 @@ from sqlalchemy import desc, select
 from ..cache import get_redis
 from ..config import get_settings
 from ..db import SessionLocal
-from ..engine import tokendance
+from ..engine import dayplan, tokendance
 from ..models import Character, Event, Letter, Post, User
 from ..soul.characters import WORLD
 from . import email as mailer
@@ -62,7 +63,15 @@ async def job_presence():
     log.debug("presence 已轮转")
 
 
-async def _gen_post(char: Character, context_hint: str) -> str | None:
+async def _gen_post(char: Character, context_hint: str, db=None) -> str | None:
+    # 有剧本时：从当前所处事件取材，碎碎念与现实时间/状态吻合（防瞬移）
+    if db is not None:
+        state = await dayplan.current_state(db, char.id)
+        if state:
+            ev, weather = state["event"], state["weather"]
+            context_hint += (f"\n你此刻正在{ev['location']}：{ev['activity']}，心情 {ev['mood']}。"
+                             f"{'今天天气：' + weather + '。' if weather else ''}"
+                             "碎碎念从这件正在发生的事里取材。")
     prompt = f"""{WORLD}
 
 {char.soul_public}
@@ -96,7 +105,7 @@ async def job_autopost(hour: int):
         if cid == "guagua":
             text = random.choice(["呱！", "呱呱～ *抱瓜打滚*", "呱……（盯", "*吃瓜* 呱"])
         else:
-            text = await _gen_post(char, hint)
+            text = await _gen_post(char, hint, db)
         if text:
             db.add(Post(author_type="character", author_id=cid, content=text))
             await db.commit()
@@ -141,6 +150,16 @@ async def job_daily_report():
         )).scalars().all()
         mem_note = (f"今天新记住了 {len(new_mems)} 件关于朋友们的事。" if new_mems
                     else "今天没有新记下什么，平淡也挺好。")
+        # 居民们今天的剧本线（日报素材：谁在什么时候做了什么）
+        chars = (await db.execute(select(Character).where(Character.active == True))).scalars().all()  # noqa: E712
+        plan_lines = []
+        for c in chars:
+            plan = await dayplan.get_today_plan(db, c.id)
+            if plan:
+                evs = json.loads(plan.events)
+                picked = "；".join(f"{e['slot']}{e['activity']}" for e in evs[:5])
+                plan_lines.append(f"- {c.name}：{picked}")
+        plans_note = "\n".join(plan_lines)
         char = (await db.execute(select(Character).where(Character.id == "crina"))).scalar_one()
         prompt = f"""{WORLD}
 
@@ -156,7 +175,10 @@ async def job_daily_report():
 {chr(10).join(post_lines) or '（今天客厅静悄悄的）'}
 
 ## 记忆小账
-{mem_note}"""
+{mem_note}
+
+## 居民们今天的一天（各自剧本）
+{plans_note}"""
         try:
             content = await tokendance.chat_once([{"role": "user", "content": prompt}],
                                                  temperature=0.8, max_tokens=900)
@@ -302,12 +324,19 @@ async def job_status():
             if c.id == "guagua":
                 text = random.choice(GUAGUA_STATUS)
             else:
+                # 有剧本时状态必须与当前所处事件一致（防瞬移）；无剧本退回自由生成
+                state = await dayplan.current_state(db, c.id)
+                if state:
+                    ev = state["event"]
+                    situation = f"你此刻正在{ev['location']}：{ev['activity']}。状态必须与这件事一致。"
+                else:
+                    situation = "要符合你的人格和作息。"
                 prompt = f"""{WORLD}
 
 {c.soul_public}
 
 # 任务
-给你自己写一个「当下状态」，类似微信状态：2-6 个字，要符合你的人格和作息。
+给你自己写一个「当下状态」，类似微信状态：2-6 个字。{situation}
 好例子：「观鸟中」「泡茶」「赶稿」「发呆」「听雨」「翻旧信」
 只输出状态本身，不要标点收尾，不要解释。"""
                 try:
@@ -334,15 +363,22 @@ async def job_visit():
         if len(chars) < 2:
             return
         a, b = random.sample(chars, 2)
+        # 两人的当下状态写进情境：串门发生在双方真实的一天里
+        states = []
+        for c in (a, b):
+            s = await dayplan.current_state(db, c.id)
+            states.append(f"{c.name} 此刻正在{s['event']['location']}：{s['event']['activity']}" if s
+                          else f"{c.name} 在自己房间里")
         prompt = f"""{WORLD}
 
 {a.soul_public}
 
 # 情境
-居民们住在一个空间里。写一句「{a.name} 去找/路过 {b.name}」的小场景，发在客厅时间线上。
+居民们住在一个空间里。{states[0]}；{states[1]}。
+写一句「{a.name} 去找/路过 {b.name}」的小场景，发在客厅时间线上。
 要求：
 - 用 {a.name} 的人格和口吻，一句话，不超过 50 字
-- 具体、有生活感（比如借东西/串门/一起看什么）
+- 与两人此刻正在做的事自洽（比如借东西/串门/一起看什么）
 - 不要旁白腔，像本人随手发的"""
         try:
             text = (await tokendance.chat_once(
@@ -356,6 +392,11 @@ async def job_visit():
         db.add(Post(author_type="character", author_id=a.id, kind="visit", content=text))
         await db.commit()
         log.info("串门事件：%s → %s", a.id, b.id)
+
+
+async def job_dayplan_wrapper():
+    """scheduler 包装：导入在此避免循环引用"""
+    await dayplan.job_dayplan()
 
 
 async def job_shopping():
@@ -389,6 +430,9 @@ def start_scheduler():
     _scheduler.add_job(job_visit, CronTrigger(hour="10,15,20", minute=random.randint(0, 59)), id="visit")
     _scheduler.add_job(job_shopping, CronTrigger(day_of_week="sun", hour=20, minute=15), id="shopping")
     _scheduler.add_job(job_daily_report, CronTrigger(hour=21, minute=random.randint(0, 30)), id="daily_report")
+    # 全天剧本：每天凌晨 04:30 批量写；启动时也跑一次（幂等，已有今日剧本则跳过）
+    _scheduler.add_job(job_dayplan_wrapper, CronTrigger(hour=4, minute=30), id="dayplan",
+                       next_run_time=datetime.now(CST) + timedelta(minutes=2))
     _scheduler.start()
     log.info("主动性引擎已启动")
 

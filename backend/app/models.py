@@ -184,6 +184,20 @@ class PostFavorite(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DayPlan(Base):
+    """居民的全天剧本（DayScript）：每天凌晨预写，状态墙/串门/碎碎念/私聊/日报共享同一状态机。
+    events 是 JSON 数组：[{slot,kind,location,activity,mood,note}]——事件必须是结构体（Alice 教训）"""
+    __tablename__ = "day_plans"
+    __table_args__ = (UniqueConstraint("character_id", "plan_date", name="uq_dayplan"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    character_id: Mapped[str] = mapped_column(String(32), ForeignKey("characters.id"), index=True)
+    plan_date: Mapped[date] = mapped_column(Date, index=True)
+    weather: Mapped[str] = mapped_column(String(32), default="")  # 当天天气（全空间一致，wttr.in 杭州）
+    events: Mapped[str] = mapped_column(Text, default="[]")  # JSON 事件结构体数组
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Article(Base):
     """长文（博客 article / crina 代笔日报 daily / 观鸟笔记 birdnote），可公开分享"""
     __tablename__ = "articles"
