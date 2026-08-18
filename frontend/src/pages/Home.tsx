@@ -5,6 +5,7 @@ import { DoorOpen, Sparkles, MessageCircleHeart } from 'lucide-react'
 import { postsApi, probeImage, spaceApi } from '../api/client'
 import type { Character, Post } from '../api/types'
 import { CharacterAvatar } from '../components/CharacterAvatar'
+import { HouseMap } from '../components/HouseMap'
 import { WardrobeSection } from '../components/Wardrobe'
 import { greeting, relativeTime } from '../lib/time'
 import { useAuth } from '../store/auth'
@@ -161,6 +162,9 @@ export function HomePage() {
 
       {/* 内容区：圆角卡片组从场景下缘滑进来，制造“往里走”的层次 */}
       <div className="relative z-10 -mt-14 rounded-t-3xl bg-cream border-t border-warm-line/70 shadow-[0_-16px_40px_rgba(90,80,60,0.10)] px-1 md:px-2 pt-8 space-y-10">
+      {/* 小屋剖面地图 */}
+      <HouseMap />
+
       {/* 居民们在干嘛 */}
       <section>
         <motion.h2
