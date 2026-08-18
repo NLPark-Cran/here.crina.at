@@ -12,6 +12,7 @@ import {
   LogOut,
   Mail,
   MailCheck,
+  MessageCircleMore,
   PlugZap,
   Unplug,
   UserRound,
@@ -149,6 +150,8 @@ function SettingsInner() {
 
       <HandleCard />
 
+      <AsideCard />
+
       {/* 退出 */}
       <motion.button
         initial={{ opacity: 0, y: 16 }}
@@ -243,6 +246,62 @@ function HandleCard() {
           </Link>
         </p>
       )}
+    </motion.section>
+  )
+}
+
+/** 居民的小声嘀咕（蛐蛐）总开关：本机设置，存 localStorage，私聊页挂载时读取 */
+function AsideCard() {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem('crina_aside_enabled') !== '0'
+    } catch {
+      return true
+    }
+  })
+
+  const toggle = () => {
+    const next = !on
+    setOn(next)
+    try {
+      localStorage.setItem('crina_aside_enabled', next ? '1' : '0')
+    } catch {
+      /* 隐私模式写不进去就算了 */
+    }
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.21 }}
+      className="bg-paper rounded-2xl shadow-card border border-warm-line p-5"
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="font-title text-lg flex items-center gap-2">
+            <MessageCircleMore className="w-5 h-5 text-xianmo" />
+            居民的小声嘀咕
+          </h2>
+          <p className="mt-2 text-sm text-ink-soft leading-relaxed">
+            私聊时，居民会在正文下面附一句只说给自己听的内心独白。关掉就只留正文。
+          </p>
+        </div>
+        <button
+          onClick={toggle}
+          role="switch"
+          aria-checked={on}
+          className={`btn-press shrink-0 w-11 h-6 rounded-full transition-colors relative ${
+            on ? 'bg-crina' : 'bg-warm-line'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${
+              on ? 'left-[22px]' : 'left-0.5'
+            }`}
+          />
+        </button>
+      </div>
     </motion.section>
   )
 }

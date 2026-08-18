@@ -27,6 +27,7 @@ class CreateConversation(BaseModel):
 class SendMessage(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     doc_ids: list[str] = Field(default_factory=list, max_length=3)  # 引用已上传文档
+    no_aside: bool = False  # 关掉居民的内心独白（蛐蛐）
 
 
 class SetMode(BaseModel):
@@ -125,7 +126,7 @@ async def send_message(conv_id: str, body: SendMessage, user: User = Depends(get
     from .docs import load_doc_context
     doc_ctx = await load_doc_context(db, user, body.doc_ids)
     return StreamingResponse(
-        engine.stream_reply(conv_id, user, body.content, db, doc_ctx),
+        engine.stream_reply(conv_id, user, body.content, db, doc_ctx, aside=not body.no_aside),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

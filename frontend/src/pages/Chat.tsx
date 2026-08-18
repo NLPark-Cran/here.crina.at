@@ -244,6 +244,7 @@ function ChatInner() {
         },
         ctrl.signal,
         docIds,
+        !asideEnabled(),
       ).catch((e) => {
         if (!ctrl.signal.aborted && e instanceof Error && e.name !== 'AbortError') {
           setError(e instanceof ApiError ? e.message : '话说到一半断了，再发一次试试？')
@@ -612,24 +613,28 @@ function ChatInner() {
                   />
                 ),
               )}
-              {streamBubbles.map((b, i) => (
-                <motion.div key={`s-${i}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                  <div className="flex gap-2.5">
-                    <CharacterAvatar name={b.name} color={b.color} avatarUrl={b.avatarUrl || null} size={32} />
-                    <div className="max-w-[80%]">
-                      <div className="text-xs mb-1" style={{ color: b.color }}>
-                        {b.name}
-                      </div>
-                      <div
-                        className="bg-cream rounded-2xl rounded-tl-md px-4 py-2.5 text-[15px] leading-relaxed border border-warm-line/70 typing-caret"
-                        style={{ borderLeftColor: b.color, borderLeftWidth: 2 }}
-                      >
-                        {b.text ? <Markdown content={b.text} streaming /> : '…'}
+              {streamBubbles.map((b, i) => {
+                const { main, aside } = splitAside(b.text, true)
+                return (
+                  <motion.div key={`s-${i}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                    <div className="flex gap-2.5">
+                      <CharacterAvatar name={b.name} color={b.color} avatarUrl={b.avatarUrl || null} size={32} />
+                      <div className="max-w-[80%]">
+                        <div className="text-xs mb-1" style={{ color: b.color }}>
+                          {b.name}
+                        </div>
+                        <div
+                          className="bg-cream rounded-2xl rounded-tl-md px-4 py-2.5 text-[15px] leading-relaxed border border-warm-line/70 typing-caret"
+                          style={{ borderLeftColor: b.color, borderLeftWidth: 2 }}
+                        >
+                          {main ? <Markdown content={main} streaming /> : '…'}
+                        </div>
+                        {asideEnabled() && aside && <AsideLine text={aside} />}
                       </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                )
+              })}
               {streaming && streamBubbles.length === 0 && (
                 <div className="flex items-center gap-2 text-sm text-ink-soft">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -1010,6 +1015,7 @@ const CharacterBubble = memo(function CharacterBubble({
   const c = charMap.get(characterId)
   const name = c?.name ?? characterId
   const color = c?.color ?? '#8A8FC4'
+  const { main, aside } = splitAside(content)
   return (
     <div className="flex gap-2.5">
       <CharacterAvatar name={name} color={color} avatarUrl={c?.avatar_url || null} size={32} />
@@ -1021,13 +1027,41 @@ const CharacterBubble = memo(function CharacterBubble({
           className="bg-cream rounded-2xl rounded-tl-md px-4 py-2.5 text-[15px] leading-relaxed border border-warm-line/70"
           style={{ borderLeftColor: color, borderLeftWidth: 2 }}
         >
-          <Markdown content={content} />
+          <Markdown content={main} />
         </div>
-        <TtsButton text={content} characterId={characterId} />
+        {asideEnabled() && aside && <AsideLine text={aside} />}
+        <TtsButton text={main} characterId={characterId} />
       </div>
     </div>
   )
 })
+
+const ASIDE_KEY = 'crina_aside_enabled'
+
+/** 蛐蛐总开关（本机设置，设置页可改） */
+export function asideEnabled(): boolean {
+  try {
+    return localStorage.getItem(ASIDE_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+/** 剥出 <aside> 内心独白；streaming 时未闭合的半截 aside 先藏住，防止标签漏出 */
+function splitAside(text: string, streaming = false): { main: string; aside: string } {
+  let aside = ''
+  const main = text.replace(/<aside>([\s\S]*?)<\/aside>/g, (_m, p1) => {
+    aside = String(p1).trim()
+    return ''
+  })
+  const cleaned = streaming ? main.replace(/<aside>[\s\S]*$/, '') : main
+  return { main: cleaned.trim(), aside }
+}
+
+/** 蛐蛐渲染：小字斜体半透明，与正文空间分离（Alice 方法论：加分项不喧宾夺主） */
+function AsideLine({ text }: { text: string }) {
+  return <p className="mt-1 ml-1 text-xs italic text-ink-soft/60 leading-relaxed">{text}</p>
+}
 
 function TtsButton({ text, characterId }: { text: string; characterId: string }) {
   const [state, setState] = useState<'idle' | 'loading' | 'playing'>('idle')

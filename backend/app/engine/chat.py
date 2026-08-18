@@ -71,9 +71,9 @@ def sse(event: dict) -> str:
 
 async def _stream_character(db: AsyncSession, user: User, character: Character,
                             conversation: Conversation, mode: str, api_key: str | None,
-                            round_note: str = "") -> AsyncGenerator[tuple[str, str], None]:
+                            round_note: str = "", aside: bool = True) -> AsyncGenerator[tuple[str, str], None]:
     """流式生成一位居民的回复，产出 (event_type, text)；完整文本最后入库"""
-    ctx = await memory.build_context(db, user, character, conversation, mode)
+    ctx = await memory.build_context(db, user, character, conversation, mode, aside=aside)
     if round_note:
         ctx.append({"role": "user", "content": round_note})
     # 探讨模式开思考（回答更扎实）；闲聊保持秒回的活人感
@@ -90,7 +90,7 @@ async def _stream_character(db: AsyncSession, user: User, character: Character,
 
 
 async def stream_reply(conversation_id: str, user: User, content: str,
-                       db: AsyncSession, doc_context: str = "") -> AsyncGenerator[str, None]:
+                       db: AsyncSession, doc_context: str = "", aside: bool = True) -> AsyncGenerator[str, None]:
     """主入口：SSE 事件流"""
     import uuid as _uuid
     try:
@@ -126,13 +126,13 @@ async def stream_reply(conversation_id: str, user: User, content: str,
 
     try:
         if mode == "brainstorm":
-            async for ev in _brainstorm(db, user, conversation, main_char, api_key, exchange):
+            async for ev in _brainstorm(db, user, conversation, main_char, api_key, exchange, aside):
                 yield ev
         else:
             yield sse({"type": "speaker", "character": main_char.id, "name": main_char.name,
                        "color": main_char.color, "avatar_url": main_char.avatar_url})
             full = ""
-            async for etype, text in _stream_character(db, user, main_char, conversation, mode, api_key):
+            async for etype, text in _stream_character(db, user, main_char, conversation, mode, api_key, aside=aside):
                 if etype == "delta":
                     yield sse({"type": "delta", "character": main_char.id, "text": text})
                 elif etype == "saved":
@@ -171,7 +171,7 @@ async def stream_reply(conversation_id: str, user: User, content: str,
 
 async def _brainstorm(db: AsyncSession, user: User, conversation: Conversation,
                       main_char: Character, api_key: str | None,
-                      exchange: list[dict]) -> AsyncGenerator[str, None]:
+                      exchange: list[dict], aside: bool = True) -> AsyncGenerator[str, None]:
     """脑暴圆桌：选 2-3 位居民 + 主角收尾"""
     chars = (await db.execute(select(Character).where(
         Character.id.in_(BRAINSTORM_CANDIDATES), Character.active == True))).scalars().all()  # noqa: E712
@@ -200,7 +200,7 @@ async def _brainstorm(db: AsyncSession, user: User, conversation: Conversation,
                    "color": c.color, "avatar_url": c.avatar_url})
         note = "（圆桌脑暴进行中，请从你的独特视角简洁地发表看法，可以接前一位的话，100 字左右）"
         full = ""
-        async for etype, text in _stream_character(db, user, c, conversation, "brainstorm", api_key, note):
+        async for etype, text in _stream_character(db, user, c, conversation, "brainstorm", api_key, note, aside=aside):
             if etype == "delta":
                 yield sse({"type": "delta", "character": c.id, "text": text})
             elif etype == "saved":
@@ -212,7 +212,7 @@ async def _brainstorm(db: AsyncSession, user: User, conversation: Conversation,
                "color": main_char.color, "avatar_url": main_char.avatar_url})
     note = "（圆桌脑暴收尾：综合大家的观点给出你的想法，自然一点，别像总结报告）"
     full = ""
-    async for etype, text in _stream_character(db, user, main_char, conversation, "brainstorm", api_key, note):
+    async for etype, text in _stream_character(db, user, main_char, conversation, "brainstorm", api_key, note, aside=aside):
         if etype == "delta":
             yield sse({"type": "delta", "character": main_char.id, "text": text})
         elif etype == "saved":

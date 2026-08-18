@@ -72,8 +72,8 @@ def _soul_block(character: Character, is_owner: bool) -> str:
 
 
 async def build_context(db: AsyncSession, user: User, character: Character,
-                        conversation: Conversation, mode: str) -> list[dict]:
-    """组装分层上下文"""
+                        conversation: Conversation, mode: str, aside: bool = True) -> list[dict]:
+    """组装分层上下文；aside=True 时要求居民在正文后附一句内心独白（蛐蛐）"""
     now = datetime.now(CST)
     soul_block = _soul_block(character, user.is_owner)
 
@@ -83,6 +83,13 @@ async def build_context(db: AsyncSession, user: User, character: Character,
         summary_block = f"\n\n# 到目前为止你们聊过的（摘要）\n{conversation.summary}"
 
     mode_prompt = MODE_PROMPTS.get(mode, "")
+    # 蛐蛐：性格句式而非行为许可（Alice 方法论："你有 X 的习惯" ≫ "你可以偶尔 X"）
+    aside_prompt = ""
+    if aside:
+        aside_prompt = (
+            "\n- 你有内心独白的习惯：回复正文之后另起一段，用 <aside>…</aside> 写一句只说给自己听的小声嘀咕"
+            "（20 字以内，口语化，带点当下的小情绪）。正文保持完整自然，别在正文里提到这句嘀咕。"
+        )
 
     # 热记忆：语义相关性召回（以本会话最近一条用户消息为查询）
     last_user_msg = (await db.execute(
@@ -108,7 +115,7 @@ async def build_context(db: AsyncSession, user: User, character: Character,
 # 当前情境
 - 现在时间：{now.strftime('%Y年%m月%d日 %H:%M')}（{'凌晨' if now.hour < 6 else '上午' if now.hour < 12 else '下午' if now.hour < 18 else '晚上'}）
 - 你在私聊间里和 {user.nickname}（关系：{user.relation_tier}）聊天
-{mode_prompt}{special_note}
+{mode_prompt}{special_note}{aside_prompt}
 {mem_block}
 {summary_block}
 

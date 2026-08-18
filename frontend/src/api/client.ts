@@ -189,12 +189,13 @@ export async function streamChatMessage(
   onEvent: (ev: ChatStreamEvent) => void,
   signal?: AbortSignal,
   docIds?: string[],
+  noAside?: boolean,
 ): Promise<void> {
   const res = await fetch(`/api/chat/conversations/${convId}/messages`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, doc_ids: docIds ?? [] }),
+    body: JSON.stringify({ content, doc_ids: docIds ?? [], no_aside: noAside ?? false }),
     signal,
   })
   await readSseStream(res, onEvent, '发送失败')
