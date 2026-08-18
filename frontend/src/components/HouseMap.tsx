@@ -42,6 +42,10 @@ const ROOMS: RoomSpot[] = [
     id: 'hall', label: '门厅', desc: '回到小屋的第一眼', path: '/',
     corner: '/assets/corner_hall.webp', spot: { x: 65, y: 58, w: 28, h: 40 },
   },
+  {
+    id: 'bedroom', label: '卧室', desc: '你的房间，灯为你留着', path: '/bedroom',
+    corner: '/assets/corner_bedroom.webp', spot: { x: 88, y: 16, w: 11, h: 24 },
+  },
 ]
 
 /** 小屋剖面地图：看见每个房间，点一点就走过去 */

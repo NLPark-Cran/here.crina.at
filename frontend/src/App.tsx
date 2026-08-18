@@ -13,6 +13,7 @@ const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ defaul
 const RoomPage = lazy(() => import('./pages/Room').then((m) => ({ default: m.RoomPage })))
 const ArticleViewPage = lazy(() => import('./pages/ArticleView').then((m) => ({ default: m.ArticleViewPage })))
 const WriterPage = lazy(() => import('./pages/Writer').then((m) => ({ default: m.WriterPage })))
+const BedroomPage = lazy(() => import('./pages/Bedroom').then((m) => ({ default: m.BedroomPage })))
 
 function PageLoading() {
   return (
@@ -119,6 +120,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading />}>
               <WriterPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="bedroom"
+          element={
+            <Suspense fallback={<PageLoading />}>
+              <BedroomPage />
             </Suspense>
           }
         />
