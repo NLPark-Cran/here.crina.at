@@ -77,9 +77,9 @@ async def _stream_character(db: AsyncSession, user: User, character: Character,
     if round_note:
         ctx.append({"role": "user", "content": round_note})
     # 探讨模式开思考（回答更扎实）；闲聊保持秒回的活人感
-    budget = settings.chat_thinking_budget if mode in ("brainstorm", "guide", "probe", "extract") else 0
+    effort = settings.chat_reasoning_effort if mode in ("brainstorm", "guide", "probe", "extract") else ""
     full = ""
-    async for delta in tokendance.chat_stream(ctx, api_key=api_key, thinking_budget=budget):
+    async for delta in tokendance.chat_stream(ctx, api_key=api_key, reasoning_effort=effort):
         full += delta
         yield "delta", delta
     msg = Message(conversation_id=conversation.id, role="character",

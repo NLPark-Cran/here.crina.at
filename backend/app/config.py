@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     tokendance_auth_url: str = "https://tokendance.space/auth"
     tokendance_exchange_url: str = "https://tokendance.space/portal/api/v1/auth/keys"
     chat_model: str = "qwen3.8-max"
-    # 探讨模式（脑暴/梳理/追问/萃取）的思考预算（token）；闲聊 auto/off 保持秒回不思考
-    chat_thinking_budget: int = 8192
+    # 探讨模式（脑暴/梳理/追问/萃取）的思考强度：low/medium/high/xhigh；闲聊 auto/off 不思考保秒回
+    chat_reasoning_effort: str = "xhigh"
     tts_model: str = "minimax-speech-2.8-hd"
     image_model: str = "seedream-5.0-pro"
     video_model: str = "minimax-h3"

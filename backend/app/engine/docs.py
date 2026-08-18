@@ -9,7 +9,7 @@ from pathlib import Path
 log = logging.getLogger("crina.docs")
 
 EXTRACT_MAX_CHARS = 20000  # 提取文本上限（防上下文爆炸）
-VISION_MODEL = "qwen3-vl-plus"
+VISION_MODEL = "qwen3.7-plus"  # 视觉理解（3.8-max 也会看，plus 降本）
 
 
 async def extract_pdf(path: Path) -> str:

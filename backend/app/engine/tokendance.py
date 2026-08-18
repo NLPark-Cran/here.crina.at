@@ -24,8 +24,9 @@ async def chat_stream(messages: list[dict], api_key: str | None = None,
                       model: str | None = None, temperature: float = 0.9,
                       presence_penalty: float = 0.2, max_tokens: int = 2048,
                       enable_thinking: bool = False,
-                      thinking_budget: int = 0) -> AsyncGenerator[str, None]:
-    """流式对话，逐段产出 content delta；thinking_budget>0 时开思考并给定预算"""
+                      thinking_budget: int = 0,
+                      reasoning_effort: str = "") -> AsyncGenerator[str, None]:
+    """流式对话，逐段产出 content delta；reasoning_effort（low/medium/high/xhigh）优先于 budget"""
     key = api_key or settings.tokendance_api_key
     body = {
         "model": model or settings.chat_model,
@@ -34,9 +35,11 @@ async def chat_stream(messages: list[dict], api_key: str | None = None,
         "presence_penalty": presence_penalty,
         "max_tokens": max_tokens,
         "stream": True,
-        "enable_thinking": enable_thinking or thinking_budget > 0,
+        "enable_thinking": enable_thinking or thinking_budget > 0 or bool(reasoning_effort),
     }
-    if thinking_budget > 0:
+    if reasoning_effort:
+        body["reasoning_effort"] = reasoning_effort
+    elif thinking_budget > 0:
         body["thinking_budget"] = thinking_budget
     async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15)) as client:
         async with client.stream("POST", f"{settings.tokendance_base_url}/chat/completions",
@@ -57,6 +60,26 @@ async def chat_stream(messages: list[dict], api_key: str | None = None,
                         yield delta["content"]
                 except Exception:
                     continue
+
+
+EMBEDDING_MODEL = "qwen-text-embedding-v4"
+
+
+async def embed(texts: list[str], api_key: str | None = None) -> list[list[float]]:
+    """文本向量化（qwen-text-embedding-v4，1024 维）——记忆相关性召回用"""
+    key = api_key or settings.tokendance_api_key
+    out: list[list[float]] = []
+    async with httpx.AsyncClient(timeout=60) as client:
+        for i in range(0, len(texts), 10):  # 上游限制单批最多 10 条
+            batch = texts[i:i + 10]
+            resp = await client.post(f"{settings.tokendance_base_url}/embeddings",
+                                     headers=_headers(key),
+                                     json={"model": EMBEDDING_MODEL, "input": batch})
+            if resp.status_code != 200:
+                raise RuntimeError(f"embedding {resp.status_code}: {resp.text[:200]}")
+            data = sorted(resp.json()["data"], key=lambda x: x["index"])
+            out.extend(d["embedding"] for d in data)
+    return out
 
 
 async def chat_once(messages: list[dict], api_key: str | None = None,

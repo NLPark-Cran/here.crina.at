@@ -13,7 +13,48 @@ from . import tokendance
 
 RECENT_K = 20
 HOT_MEMORY_LIMIT = 12
+RECALL_POOL = 60  # 候选池：先按重要性取前 N，再按语义相关性重排
 CST = timezone(timedelta(hours=8))
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = na = nb = 0.0
+    for x, y in zip(a, b, strict=False):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    return dot / ((na ** 0.5) * (nb ** 0.5) + 1e-9)
+
+
+async def _recall(db: AsyncSession, user: User, query: str) -> list:
+    """语义召回：候选池按 salience 取前 RECALL_POOL，有余力的用 embedding 余弦重排。
+    无向量/无查询时退化为纯重要性排序。"""
+    import logging
+    mems = list((await db.execute(
+        select(Memory).where(Memory.user_id == user.id)
+        .order_by(desc(Memory.salience), desc(Memory.created_at)).limit(RECALL_POOL)
+    )).scalars().all())
+    if not mems:
+        return mems
+    scored = [m for m in mems if m.embedding]
+    if not query or not scored:
+        return mems[:HOT_MEMORY_LIMIT]
+    try:
+        q = (await tokendance.embed([query]))[0]
+    except Exception:
+        logging.getLogger("crina.memory").exception("查询向量化失败，退化为重要性排序")
+        return mems[:HOT_MEMORY_LIMIT]
+
+    def score(m) -> float:
+        if not m.embedding:
+            return 0.15 * (m.salience / 10)  # 无向量的只靠重要性，排在有相关性的后面
+        try:
+            vec = json.loads(m.embedding)
+            return _cosine(q, vec) + 0.15 * (m.salience / 10)
+        except Exception:
+            return 0.0
+
+    return sorted(mems, key=score, reverse=True)[:HOT_MEMORY_LIMIT]
 
 
 # SOUL 前缀缓存（WORLD+人设是不变的大字符串，按 character+是否站主缓存）
@@ -36,21 +77,23 @@ async def build_context(db: AsyncSession, user: User, character: Character,
     now = datetime.now(CST)
     soul_block = _soul_block(character, user.is_owner)
 
-    # 热记忆（按重要性）
-    mems = (await db.execute(
-        select(Memory).where(Memory.user_id == user.id)
-        .order_by(desc(Memory.salience), desc(Memory.created_at)).limit(HOT_MEMORY_LIMIT)
-    )).scalars().all()
     mem_block = ""
-    if mems:
-        lines = [f"- [{m.kind}] {m.content}" for m in mems]
-        mem_block = "\n\n# 你记得的关于这位朋友的事\n" + "\n".join(lines)
-
     summary_block = ""
     if conversation.summary:
         summary_block = f"\n\n# 到目前为止你们聊过的（摘要）\n{conversation.summary}"
 
     mode_prompt = MODE_PROMPTS.get(mode, "")
+
+    # 热记忆：语义相关性召回（以本会话最近一条用户消息为查询）
+    last_user_msg = (await db.execute(
+        select(Message.content).where(
+            Message.conversation_id == conversation.id, Message.role == "user")
+        .order_by(desc(Message.seq)).limit(1)
+    )).scalar_one_or_none()
+    mems = await _recall(db, user, last_user_msg or "")
+    if mems:
+        lines = [f"- [{m.kind}] {m.content}" for m in mems]
+        mem_block = "\n\n# 你记得的关于这位朋友的事\n" + "\n".join(lines)
 
     # 特别的朋友识别（如安风的原型本尊到访）
     from ..soul.characters import SPECIAL_FRIENDS
@@ -144,6 +187,7 @@ async def extract_memories(db: AsyncSession, user: User, character_id: str,
 
     by_id = {str(m.id): m for m in existing}
     applied = 0
+    pending_embed: list[tuple[object, str]] = []  # (记忆对象/None, 待向量化文本)
     for item in ops[:5]:
         try:
             op = item.get("op")
@@ -159,8 +203,10 @@ async def extract_memories(db: AsyncSession, user: User, character_id: str,
                 )).scalar_one_or_none()
                 if dup:
                     continue
-                db.add(Memory(user_id=user.id, character_id=character_id, kind=kind,
-                              content=content, salience=salience, evidence=evidence))
+                mem = Memory(user_id=user.id, character_id=character_id, kind=kind,
+                             content=content, salience=salience, evidence=evidence)
+                db.add(mem)
+                pending_embed.append((mem, content))
                 applied += 1
             elif op == "update":
                 mem = by_id.get(str(item.get("id")))
@@ -168,6 +214,7 @@ async def extract_memories(db: AsyncSession, user: User, character_id: str,
                     new_content = str(item["content"]).strip()
                     if len(new_content) >= 4:
                         mem.content = new_content
+                        pending_embed.append((mem, new_content))
                         applied += 1
             elif op == "delete":
                 mem = by_id.get(str(item.get("id")))
@@ -176,9 +223,24 @@ async def extract_memories(db: AsyncSession, user: User, character_id: str,
                     applied += 1
         except Exception:
             continue
-    if applied:
+    # 存量回填：顺带把没有向量的记忆补上（每次最多 30 条，随聊天自然补齐）
+    backfill = list((await db.execute(
+        select(Memory).where(Memory.user_id == user.id, Memory.embedding == "")
+        .order_by(desc(Memory.salience)).limit(30)
+    )).scalars().all())
+    for m in backfill:
+        pending_embed.append((m, m.content))
+    if pending_embed:
+        try:
+            vecs = await tokendance.embed([t[:500] for _, t in pending_embed], api_key=api_key)
+            for (m, _), vec in zip(pending_embed, vecs, strict=False):
+                m.embedding = json.dumps(vec)
+            applied += 0  # 向量写入不改变 ops 计数
+        except Exception:
+            log.exception("记忆向量化失败（不影响记忆本身）")
+    if applied or pending_embed:
         await db.commit()
-        log.info("记忆维护完成 user=%s ops=%d", user.id, applied)
+        log.info("记忆维护完成 user=%s ops=%d embedded=%d", user.id, applied, len(pending_embed))
 
 
 SUMMARY_PROMPT = """把这段对话的进展合并进已有的对话摘要。保留关键事实与情绪线索，控制在 150 字以内。

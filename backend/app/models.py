@@ -123,6 +123,7 @@ class Memory(Base):
     content: Mapped[str] = mapped_column(Text)
     salience: Mapped[int] = mapped_column(Integer, default=5)  # 1-10 重要性
     evidence: Mapped[str] = mapped_column(Text, default="")  # 原文证据
+    embedding: Mapped[str] = mapped_column(Text, default="")  # JSON 向量（qwen-text-embedding-v4），相关性召回用
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
