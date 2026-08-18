@@ -43,6 +43,7 @@ class User(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Shanghai")  # IANA 时区，问候信/提醒按此触发
     affinity: Mapped[int] = mapped_column(Integer, default=0)  # 熟悉度：互动累积，跨阈值自动升 relation_tier
     ics_token: Mapped[str] = mapped_column(String(64), default="")  # 日历订阅专用只读 token（可重置，非会话 JWT）
+    handle: Mapped[str | None] = mapped_column(String(32), unique=True, index=True, nullable=True)  # 房间地址 /@handle（默认观猹ID，可改）
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -153,6 +154,51 @@ class PostReply(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     post: Mapped[Post] = relationship(back_populates="replies")
+
+
+# 客厅反应允许的 emoji（瓜瓜的 🍉 也在里面）
+POST_EMOJIS = ("❤️", "🍉", "🦉", "😂", "🤔")
+
+
+class PostReaction(Base):
+    """客厅帖子的 emoji 反应（双态作者：用户/居民），同作者同 emoji 唯一——toggle 语义"""
+    __tablename__ = "post_reactions"
+    __table_args__ = (UniqueConstraint("post_id", "author_type", "author_id", "emoji", name="uq_reaction"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    post_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    author_type: Mapped[str] = mapped_column(String(16))
+    author_id: Mapped[str] = mapped_column(String(64))
+    emoji: Mapped[str] = mapped_column(String(8))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PostFavorite(Base):
+    """客厅帖子收藏（仅登录用户）"""
+    __tablename__ = "post_favorites"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_favorite"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    post_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Article(Base):
+    """长文（博客 article / crina 代笔日报 daily / 观鸟笔记 birdnote），可公开分享"""
+    __tablename__ = "articles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    author_type: Mapped[str] = mapped_column(String(16))  # user / character
+    author_id: Mapped[str] = mapped_column(String(64), index=True)  # user uuid str / character slug
+    title: Mapped[str] = mapped_column(String(200))
+    content: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(String(300), default="")
+    kind: Mapped[str] = mapped_column(String(16), default="article")  # article / daily / birdnote
+    public: Mapped[bool] = mapped_column(Boolean, default=False)
+    views: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Event(Base):

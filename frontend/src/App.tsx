@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Route, Routes } from 'react-router'
+import { Route, Routes, useLocation } from 'react-router'
 import { Layout } from './components/Layout'
 import { HomePage } from './pages/Home'
 import { LoginPage } from './pages/Login'
@@ -10,6 +10,9 @@ const BoardPage = lazy(() => import('./pages/Board').then((m) => ({ default: m.B
 const MailboxPage = lazy(() => import('./pages/Mailbox').then((m) => ({ default: m.MailboxPage })))
 const ArchivePage = lazy(() => import('./pages/Archive').then((m) => ({ default: m.ArchivePage })))
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })))
+const RoomPage = lazy(() => import('./pages/Room').then((m) => ({ default: m.RoomPage })))
+const ArticleViewPage = lazy(() => import('./pages/ArticleView').then((m) => ({ default: m.ArticleViewPage })))
+const WriterPage = lazy(() => import('./pages/Writer').then((m) => ({ default: m.WriterPage })))
 
 function PageLoading() {
   return (
@@ -18,6 +21,19 @@ function PageLoading() {
       <p className="mt-4 text-sm">搬椅子上楼中…</p>
     </div>
   )
+}
+
+/** /@handle 房间页：React Router 不支持段内「前缀+动态参数」，在 * 兜底里自己解析 */
+function StarRoute() {
+  const { pathname } = useLocation()
+  if (/^\/@[A-Za-z0-9-]{1,32}\/?$/.test(pathname)) {
+    return (
+      <Suspense fallback={<PageLoading />}>
+        <RoomPage />
+      </Suspense>
+    )
+  }
+  return <HomePage />
 }
 
 export default function App() {
@@ -82,7 +98,31 @@ export default function App() {
             </Suspense>
           }
         />
-        <Route path="*" element={<HomePage />} />
+        <Route
+          path="p/:id"
+          element={
+            <Suspense fallback={<PageLoading />}>
+              <ArticleViewPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="write"
+          element={
+            <Suspense fallback={<PageLoading />}>
+              <WriterPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="write/:id"
+          element={
+            <Suspense fallback={<PageLoading />}>
+              <WriterPage />
+            </Suspense>
+          }
+        />
+        <Route path="*" element={<StarRoute />} />
       </Route>
     </Routes>
   )

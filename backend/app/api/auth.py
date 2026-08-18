@@ -105,6 +105,10 @@ async def watcha_callback(code: str | None = None, state: str | None = None,
         if profile.get("email"):
             user.email = profile["email"]
 
+    # 房间地址：默认用观猹数字 ID 作 handle（唯一且稳定），之后可在设置里改成好看的
+    if not user.handle:
+        user.handle = str(watcha_id)
+
     # 特别的朋友：特定邮箱登录直升「老友」
     from ..soul.characters import SPECIAL_FRIENDS
     if user.email and user.email.strip().lower() in SPECIAL_FRIENDS:
@@ -173,6 +177,7 @@ async def me(user: User = Depends(get_current_user)):
         "relation_tier": user.relation_tier,
         "notify_email": user.notify_email,
         "timezone": user.timezone,
+        "handle": user.handle,
     }
 
 
@@ -183,4 +188,5 @@ async def me_optional(request: Request, db: AsyncSession = Depends(get_db)):
     if not user:
         return {"user": None}
     return {"user": {"id": str(user.id), "nickname": user.nickname, "avatar_url": user.avatar_url,
-                     "is_owner": user.is_owner, "relation_tier": user.relation_tier}}
+                     "is_owner": user.is_owner, "relation_tier": user.relation_tier,
+                     "handle": user.handle}}

@@ -1,9 +1,12 @@
 import type {
   AgentTask,
+  Article,
+  ArticleBrief,
   ByokStatus,
   Character,
   ChatMode,
   ChatStreamEvent,
+  ComposeDraft,
   Conversation,
   ConversationDetail,
   EmindImportResult,
@@ -16,6 +19,7 @@ import type {
   Memory,
   Post,
   PresenceMap,
+  RoomProfile,
   SpaceDoc,
   SpaceEvent,
   TaskStreamEvent,
@@ -60,6 +64,8 @@ const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 const patch = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
+const put = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
 const del = <T>(path: string) => request<T>(path, { method: 'DELETE' })
 
 // ---------- 认证 ----------
@@ -87,6 +93,30 @@ export const postsApi = {
   create: (content: string) => post<{ id: string }>('/api/posts', { content }),
   reply: (postId: string, content: string) =>
     post<{ id: string }>(`/api/posts/${postId}/replies`, { content }),
+  react: (postId: string, emoji: string) =>
+    post<{ emoji: string; on: boolean; count: number }>(`/api/posts/${postId}/reactions`, { emoji }),
+  favorite: (postId: string) =>
+    post<{ favorited: boolean }>(`/api/posts/${postId}/favorite`, {}),
+  favorites: () => get<{ posts: Post[] }>('/api/posts/favorites'),
+}
+
+// ---------- 长文与房间 ----------
+export const articlesApi = {
+  publicFeed: (kind?: string) =>
+    get<{ articles: ArticleBrief[] }>(`/api/articles/public${kind ? `?kind=${kind}` : ''}`),
+  mine: () => get<{ articles: ArticleBrief[] }>('/api/articles/mine'),
+  read: (id: string) => get<{ article: Article; is_author: boolean }>(`/api/articles/${id}`),
+  create: (body: { title: string; content: string; summary: string; kind: string; public: boolean }) =>
+    post<{ id: string }>('/api/articles', body),
+  update: (id: string, body: { title: string; content: string; summary: string; kind: string; public: boolean }) =>
+    put<{ ok: boolean }>(`/api/articles/${id}`, body),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/articles/${id}`),
+  compose: (body: { raw_text: string; kind: string; conversation_id?: string }) =>
+    post<ComposeDraft>('/api/articles/compose', body),
+}
+
+export const roomsApi = {
+  get: (handle: string) => get<{ room: RoomProfile; articles: ArticleBrief[] }>(`/api/rooms/${encodeURIComponent(handle)}`),
 }
 
 // ---------- 私聊 ----------
@@ -298,6 +328,8 @@ export const settingsApi = {
     post<{ ok: boolean; notify_email: boolean }>('/api/settings/notify', { notify_email }),
   setTimezone: (timezone: string) =>
     post<{ ok: boolean; timezone: string }>('/api/settings/timezone', { timezone }),
+  setHandle: (handle: string) =>
+    put<{ ok: boolean; handle: string }>('/api/settings/handle', { handle }),
 }
 
 // ---------- 档案馆 ----------

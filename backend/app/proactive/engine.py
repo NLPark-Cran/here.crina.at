@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import select
+from sqlalchemy import desc, select
 
 from ..cache import get_redis
 from ..config import get_settings
@@ -105,6 +105,72 @@ async def job_autopost(hour: int):
 
 MORNING_HOUR = 8   # 用户当地 8 点发早安信
 NIGHT_HOUR = 22     # 用户当地 22 点发晚安信
+
+
+async def job_daily_report():
+    """crina 代笔日报：每晚把今天客厅的热闹写成一篇公开小日报（幂等：当天已有则跳过）"""
+    from ..api.posts import _resolve_authors
+    from ..models import Article, Memory, PostReaction
+    now_utc = datetime.now(UTC)
+    local_now = now_utc.astimezone(CST)
+    today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+    async with SessionLocal() as db:
+        dup = (await db.execute(
+            select(Article).where(Article.kind == "daily", Article.created_at >= today_start)
+        )).scalar_one_or_none()
+        if dup:
+            return
+        since = now_utc - timedelta(hours=24)
+        posts = (await db.execute(
+            select(Post).where(Post.created_at >= since).order_by(desc(Post.created_at)).limit(30)
+        )).scalars().all()
+        authors = await _resolve_authors(db, list(posts))
+        reactions = (await db.execute(
+            select(PostReaction).where(PostReaction.post_id.in_([p.id for p in posts]))
+        )).scalars().all() if posts else []
+        heat: dict = {}
+        for r in reactions:
+            heat[r.post_id] = heat.get(r.post_id, 0) + 1
+        post_lines = []
+        for p in sorted(posts, key=lambda p: heat.get(p.id, 0), reverse=True)[:10]:
+            name = authors.get(p.author_id, {}).get("name", "神秘人")
+            tag = f"（收获 {heat[p.id]} 个反应）" if heat.get(p.id) else ""
+            post_lines.append(f"- {name}：{p.content[:100]}{tag}")
+        new_mems = (await db.execute(
+            select(Memory).where(Memory.created_at >= today_start).limit(10)
+        )).scalars().all()
+        mem_note = (f"今天新记住了 {len(new_mems)} 件关于朋友们的事。" if new_mems
+                    else "今天没有新记下什么，平淡也挺好。")
+        char = (await db.execute(select(Character).where(Character.id == "crina"))).scalar_one()
+        prompt = f"""{WORLD}
+
+{char.soul_public}
+
+# 情境
+现在是晚上，你为镜听空间写一篇「今日小日报」，公开发在小屋的文章架上。
+要求：用你自己的口吻，像给朋友写晚间小广播；300-500 字，Markdown 排版（可以用小标题和列表）；
+材料里没有的事不要编；平淡的一天就写平淡的温柔，不要硬凑热闹。
+
+# 今天的材料
+## 客厅碎碎念（按热度）
+{chr(10).join(post_lines) or '（今天客厅静悄悄的）'}
+
+## 记忆小账
+{mem_note}"""
+        try:
+            content = await tokendance.chat_once([{"role": "user", "content": prompt}],
+                                                 temperature=0.8, max_tokens=900)
+            content = content.strip()
+            if len(content) < 50:
+                return
+            db.add(Article(author_type="character", author_id="crina",
+                           title=f"{local_now.strftime('%m月%d日')} · 小屋日报",
+                           content=content, summary=content[:60].replace("\n", " "),
+                           kind="daily", public=True))
+            await db.commit()
+            log.info("小屋日报已发布 %s", local_now.date())
+        except Exception:
+            log.exception("日报生成失败")
 
 
 def _user_tz(user: User) -> ZoneInfo:
@@ -322,6 +388,7 @@ def start_scheduler():
                        next_run_time=datetime.now(CST))
     _scheduler.add_job(job_visit, CronTrigger(hour="10,15,20", minute=random.randint(0, 59)), id="visit")
     _scheduler.add_job(job_shopping, CronTrigger(day_of_week="sun", hour=20, minute=15), id="shopping")
+    _scheduler.add_job(job_daily_report, CronTrigger(hour=21, minute=random.randint(0, 30)), id="daily_report")
     _scheduler.start()
     log.info("主动性引擎已启动")
 

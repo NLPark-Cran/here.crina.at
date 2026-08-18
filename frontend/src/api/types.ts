@@ -8,6 +8,7 @@ export interface User {
   email?: string | null
   notify_email?: boolean
   timezone?: string
+  handle?: string | null
 }
 
 export interface MeOptional {
@@ -59,7 +60,46 @@ export interface Post {
   content: string
   image_url: string | null
   created_at: string
+  /** emoji 反应聚合计数，如 {"❤️": 2} */
+  reactions: Record<string, number>
+  /** 当前用户点过的 emoji */
+  my_reactions: string[]
+  favorited: boolean
   replies: PostReply[]
+}
+
+// ---------- 长文（博客/观鸟笔记/日报）与房间 ----------
+export interface ArticleBrief {
+  id: string
+  title: string
+  summary: string
+  kind: string  // article / daily / birdnote
+  public: boolean
+  views: number
+  author: PostAuthor
+  created_at: string
+  updated_at: string
+}
+
+export interface Article extends ArticleBrief {
+  content: string
+  author_id: string
+  author_type: string
+}
+
+export interface RoomProfile {
+  nickname: string
+  handle: string
+  avatar_url: string | null
+  relation_tier: string
+  days: number
+}
+
+export interface ComposeDraft {
+  title: string
+  summary: string
+  content: string
+  kind: string
 }
 
 // ---------- 私聊 ----------

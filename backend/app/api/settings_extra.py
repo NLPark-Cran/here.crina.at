@@ -85,6 +85,29 @@ async def set_notify(body: NotifyPref, user: User = Depends(get_current_user), d
     return {"ok": True, "notify_email": user.notify_email}
 
 
+HANDLE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
+
+
+class HandlePref(BaseModel):
+    handle: str
+
+
+@router.put("/handle")
+async def set_handle(body: HandlePref, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """房间地址 /@handle：小写字母/数字/连字符，3-32 位，全站唯一"""
+    from sqlalchemy import select
+    h = body.handle.strip().lower()
+    if not HANDLE_RE.match(h):
+        raise HTTPException(400, "地址要小写字母、数字或连字符，3-32 位，字母或数字开头哦")
+    if h != (user.handle or ""):
+        taken = (await db.execute(select(User).where(User.handle == h, User.id != user.id))).scalar_one_or_none()
+        if taken:
+            raise HTTPException(409, "这个地址已经有人住啦，换一个试试？")
+        user.handle = h
+        await db.commit()
+    return {"ok": True, "handle": user.handle}
+
+
 class TimezonePref(BaseModel):
     timezone: str
 

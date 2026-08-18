@@ -1,29 +1,37 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  Bird,
   BookMarked,
+  Bookmark,
   Brain,
   CalendarDays,
   Check,
   Copy,
   Download,
   LibraryBig,
+  Newspaper,
+  PenLine,
   Plus,
   Trash2,
 } from 'lucide-react'
-import { ApiError, archiveApi } from '../api/client'
-import type { Memory, SpaceEvent, WikiPage } from '../api/types'
+import { Link } from 'react-router'
+import { ApiError, archiveApi, articlesApi, postsApi } from '../api/client'
+import type { ArticleBrief, Memory, Post, SpaceEvent, WikiPage } from '../api/types'
+import { CharacterAvatar } from '../components/CharacterAvatar'
 import { AuthGate } from '../components/AuthGate'
 import { EmptyState } from '../components/EmptyState'
 import { Markdown } from '../components/Markdown'
 import { formatDateTime, relativeTime } from '../lib/time'
 
-type Tab = 'memories' | 'calendar' | 'wiki'
+type Tab = 'memories' | 'calendar' | 'wiki' | 'articles' | 'favorites'
 
 const TABS: { id: Tab; label: string; icon: typeof Brain }[] = [
   { id: 'memories', label: '记忆', icon: Brain },
   { id: 'calendar', label: '日历', icon: CalendarDays },
   { id: 'wiki', label: '沉淀', icon: BookMarked },
+  { id: 'articles', label: '我的文章', icon: Newspaper },
+  { id: 'favorites', label: '收藏', icon: Bookmark },
 ]
 
 export function ArchivePage() {
@@ -73,6 +81,8 @@ function ArchiveInner() {
             {tab === 'memories' && <MemoriesTab />}
             {tab === 'calendar' && <CalendarTab />}
             {tab === 'wiki' && <WikiTab />}
+            {tab === 'articles' && <ArticlesTab />}
+            {tab === 'favorites' && <FavoritesTab />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -436,6 +446,151 @@ function WikiTab() {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ---------- 我的文章 ----------
+function ArticlesTab() {
+  const [articles, setArticles] = useState<ArticleBrief[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    articlesApi
+      .mine()
+      .then((d) => setArticles(d.articles))
+      .catch(() => setError('文章架搬不过来，刷新试试'))
+      .finally(() => setLoaded(true))
+  }, [])
+
+  const remove = async (id: string) => {
+    try {
+      await articlesApi.remove(id)
+      setArticles((as) => as.filter((a) => a.id !== id))
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '没删掉，再试一次？')
+    }
+  }
+
+  return (
+    <div>
+      <Link
+        to="/write"
+        className="btn-press inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-crina text-white text-sm shadow-sm hover:bg-crina-deep"
+      >
+        <PenLine className="w-4 h-4" />
+        写一篇
+      </Link>
+      {error && <p className="mt-2 text-xs text-anfeng">{error}</p>}
+      <div className="mt-4 space-y-3">
+        {loaded && articles.length === 0 && (
+          <EmptyState
+            icon={Newspaper}
+            title="还没有写过文章"
+            hint="点上面的「写一篇」，或者让 crina 把你的碎碎念整理成文。"
+          />
+        )}
+        {articles.map((a) => (
+          <div
+            key={a.id}
+            className="bg-paper rounded-2xl shadow-card border border-warm-line p-5 flex items-start gap-3"
+          >
+            <Link to={`/p/${a.id}`} className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                {a.kind === 'birdnote' && <Bird className="w-4 h-4 text-qiule shrink-0" />}
+                <h3 className="font-title text-lg truncate">{a.title}</h3>
+                <span
+                  className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full ${
+                    a.public ? 'bg-qiule/15 text-qiule' : 'bg-cream text-ink-soft'
+                  }`}
+                >
+                  {a.public ? '公开' : '私密'}
+                </span>
+              </div>
+              {a.summary && <p className="mt-1 text-sm text-ink-soft line-clamp-1">{a.summary}</p>}
+              <p className="mt-1.5 text-xs text-ink-soft/70">
+                {relativeTime(a.created_at)} · {a.views} 次阅读
+              </p>
+            </Link>
+            <div className="shrink-0 flex items-center gap-1">
+              <Link
+                to={`/write/${a.id}`}
+                aria-label="编辑"
+                className="btn-press p-2 rounded-full text-ink-soft hover:text-crina-deep"
+              >
+                <PenLine className="w-4 h-4" />
+              </Link>
+              <button
+                onClick={() => void remove(a.id)}
+                aria-label="删除"
+                className="btn-press p-2 rounded-full text-ink-soft hover:text-anfeng"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------- 收藏 ----------
+function FavoritesTab() {
+  const [posts, setPosts] = useState<Post[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    postsApi
+      .favorites()
+      .then((d) => setPosts(d.posts))
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [])
+
+  const unfav = async (id: string) => {
+    try {
+      await postsApi.favorite(id)
+      setPosts((ps) => ps.filter((p) => p.id !== id))
+    } catch {
+      /* 下次进来还在，无妨 */
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {loaded && posts.length === 0 && (
+        <EmptyState
+          icon={Bookmark}
+          title="还没有收藏"
+          hint="在客厅看到喜欢的碎碎念，点右下角的小书签就收进来了。"
+        />
+      )}
+      {posts.map((p) => (
+        <div key={p.id} className="bg-paper rounded-2xl shadow-card border border-warm-line p-5">
+          <div className="flex items-center gap-2.5">
+            <CharacterAvatar
+              name={p.author.name}
+              color={p.author.color ?? (p.author.type === 'user' ? '#8A8FC4' : undefined)}
+              avatarUrl={p.author.avatar_url}
+              size={30}
+            />
+            <span className="text-sm font-medium" style={{ color: p.author.color ?? undefined }}>
+              {p.author.name}
+            </span>
+            <span className="text-xs text-ink-soft">{relativeTime(p.created_at)}</span>
+            <button
+              onClick={() => void unfav(p.id)}
+              aria-label="取消收藏"
+              className="btn-press ml-auto p-1.5 rounded-full text-anfeng"
+            >
+              <Bookmark className="w-4 h-4" fill="currentColor" />
+            </button>
+          </div>
+          <p className="mt-2.5 text-[15px] leading-relaxed whitespace-pre-wrap">{p.content}</p>
+        </div>
+      ))}
     </div>
   )
 }

@@ -10,6 +10,7 @@ from .agentpool import proxy as agent_proxy
 from .api import (
     agent,
     archive,
+    articles,
     auth,
     byok,
     chat,
@@ -19,6 +20,7 @@ from .api import (
     importer,
     letters,
     posts,
+    rooms,
     settings_extra,
     space,
     wardrobe,
@@ -58,6 +60,8 @@ app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(chat.router, prefix=settings.api_prefix)
 app.include_router(space.router, prefix=settings.api_prefix)
 app.include_router(posts.router, prefix=settings.api_prefix)
+app.include_router(articles.router, prefix=settings.api_prefix)
+app.include_router(rooms.router, prefix=settings.api_prefix)
 app.include_router(letters.router, prefix=settings.api_prefix)
 app.include_router(events.router, prefix=settings.api_prefix)
 app.include_router(docs.router, prefix=settings.api_prefix)

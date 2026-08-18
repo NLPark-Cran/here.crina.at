@@ -147,6 +147,8 @@ function SettingsInner() {
       {/* 通知偏好（真实生效的开关在「邮箱绑定」卡里） */}
       <TimezoneCard />
 
+      <HandleCard />
+
       {/* 退出 */}
       <motion.button
         initial={{ opacity: 0, y: 16 }}
@@ -163,6 +165,85 @@ function SettingsInner() {
         门不锁，随时回来。
       </p>
     </div>
+  )
+}
+
+/** 房间地址：/@handle 公开小窝的唯一标识 */
+function HandleCard() {
+  const [handle, setHandle] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    authApi.me().then((m) => {
+      setHandle(m.handle ?? null)
+      setDraft(m.handle ?? '')
+    }).catch(() => {})
+  }, [])
+
+  const save = async () => {
+    const h = draft.trim().toLowerCase()
+    if (!h || saving) return
+    setSaving(true)
+    setMsg(null)
+    try {
+      const r = await settingsApi.setHandle(h)
+      setHandle(r.handle)
+      setDraft(r.handle)
+      setMsg({ ok: true, text: '门牌换好啦' })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : '没换成，再试一次？' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.2 }}
+      className="bg-paper rounded-2xl shadow-card border border-warm-line p-5"
+    >
+      <h2 className="font-title text-lg flex items-center gap-2">
+        <DoorOpen className="w-5 h-5 text-qiule" />
+        你的房间门牌
+      </h2>
+      <p className="mt-2 text-sm text-ink-soft leading-relaxed">
+        朋友们能用这个地址路过你的小房间，看看你公开的文章。
+      </p>
+      <div className="mt-3 flex items-center gap-2">
+        <div className="flex-1 flex items-center bg-cream/60 rounded-xl border border-warm-line px-3 py-2 focus-within:border-crina/50">
+          <span className="text-xs text-ink-soft/70 shrink-0">here.crina.at/@</span>
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase())}
+            maxLength={32}
+            placeholder="3-32 位小写字母数字"
+            className="flex-1 min-w-0 bg-transparent outline-none text-sm"
+          />
+        </div>
+        <button
+          onClick={() => void save()}
+          disabled={!draft.trim() || draft.trim() === (handle ?? '') || saving}
+          className="btn-press px-4 py-2 rounded-full bg-crina text-white text-sm disabled:opacity-40 hover:bg-crina-deep"
+        >
+          {saving ? '换牌中…' : '换门牌'}
+        </button>
+      </div>
+      {msg && (
+        <p className={`mt-2 text-xs ${msg.ok ? 'text-qiule' : 'text-anfeng'}`}>{msg.text}</p>
+      )}
+      {handle && (
+        <p className="mt-2 text-xs text-ink-soft/70">
+          现在你的房间在{' '}
+          <Link to={`/@${handle}`} className="text-crina-deep hover:underline">
+            here.crina.at/@{handle}
+          </Link>
+        </p>
+      )}
+    </motion.section>
   )
 }
 

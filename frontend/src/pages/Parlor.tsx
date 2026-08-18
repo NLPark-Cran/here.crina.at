@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { Footprints, SendHorizonal, Trash2, Sofa } from 'lucide-react'
-import { postsApi, spaceApi, ApiError } from '../api/client'
-import type { GarbageItem, Post } from '../api/types'
+import { Link } from 'react-router'
+import { Bookmark, Footprints, Newspaper, SendHorizonal, Trash2, Sofa } from 'lucide-react'
+import { articlesApi, postsApi, spaceApi, ApiError } from '../api/client'
+import type { ArticleBrief, GarbageItem, Post } from '../api/types'
+
+/** 客厅反应架上的 emoji（与后端 POST_EMOJIS 一致） */
+const EMOJIS = ['❤️', '🍉', '🦉', '😂', '🤔'] as const
 import { CharacterAvatar } from '../components/CharacterAvatar'
 import { EmptyState } from '../components/EmptyState'
 import { ZoomableImage } from '../components/ZoomableImage'
@@ -12,6 +16,7 @@ import { useAuth } from '../store/auth'
 export function ParlorPage() {
   const { user } = useAuth()
   const [posts, setPosts] = useState<Post[]>([])
+  const [dailies, setDailies] = useState<ArticleBrief[]>([])
   const [loaded, setLoaded] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -28,7 +33,43 @@ export function ParlorPage() {
       .then((d) => setPosts(d.posts))
       .catch(() => {})
       .finally(() => setLoaded(true))
+    articlesApi
+      .publicFeed('daily')
+      .then((d) => setDailies(d.articles.slice(0, 1)))
+      .catch(() => {})
   }, [])
+
+  /** emoji 反应 toggle：用后端返回的权威 count/on 更新本地 */
+  const toggleReact = async (postId: string, emoji: string) => {
+    if (!user) return
+    try {
+      const r = await postsApi.react(postId, emoji)
+      setPosts((ps) =>
+        ps.map((p) => {
+          if (p.id !== postId) return p
+          const reactions = { ...p.reactions }
+          if (r.count > 0) reactions[emoji] = r.count
+          else delete reactions[emoji]
+          const my_reactions = r.on
+            ? [...p.my_reactions, emoji]
+            : p.my_reactions.filter((e) => e !== emoji)
+          return { ...p, reactions, my_reactions }
+        }),
+      )
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '反应没贴上，再点一次？')
+    }
+  }
+
+  const toggleFav = async (postId: string) => {
+    if (!user) return
+    try {
+      const r = await postsApi.favorite(postId)
+      setPosts((ps) => ps.map((p) => (p.id === postId ? { ...p, favorited: r.favorited } : p)))
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '收藏失败，再试一次？')
+    }
+  }
 
   useEffect(() => {
     load()
@@ -126,6 +167,21 @@ export function ParlorPage() {
         )
       )}
 
+      {/* crina 的小日报 */}
+      {dailies.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.12 }}>
+          <Link
+            to={`/p/${dailies[0].id}`}
+            className="mt-4 flex items-center gap-2.5 bg-gradient-to-r from-crina/10 to-qiule/10 rounded-2xl border border-crina/20 px-4 py-3 text-sm hover:shadow-card transition-shadow"
+          >
+            <Newspaper className="w-4 h-4 text-crina shrink-0" />
+            <span className="text-ink-soft">crina 的小日报</span>
+            <span className="font-medium truncate">{dailies[0].title}</span>
+            <span className="ml-auto text-xs text-crina-deep shrink-0">读一读 →</span>
+          </Link>
+        </motion.div>
+      )}
+
       {/* 时间线 */}
       <div className="mt-6 space-y-4">
         {loaded && posts.length === 0 && (
@@ -179,6 +235,41 @@ export function ParlorPage() {
                   className="mt-3 rounded-xl max-h-72 object-cover"
                 />
               )}
+
+              {/* 反应条 */}
+              <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+                {EMOJIS.map((e) => {
+                  const count = p.reactions[e] ?? 0
+                  const mine = p.my_reactions.includes(e)
+                  if (!user && count === 0) return null
+                  return (
+                    <button
+                      key={e}
+                      onClick={() => void toggleReact(p.id, e)}
+                      disabled={!user}
+                      className={`btn-press px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                        mine
+                          ? 'bg-crina/15 border-crina/40'
+                          : 'bg-cream/60 border-warm-line hover:border-crina/30'
+                      } disabled:cursor-default`}
+                    >
+                      {e}
+                      {count > 0 && <span className="ml-1 text-ink-soft">{count}</span>}
+                    </button>
+                  )
+                })}
+                {user && (
+                  <button
+                    onClick={() => void toggleFav(p.id)}
+                    aria-label={p.favorited ? '取消收藏' : '收藏'}
+                    className={`btn-press ml-auto p-1.5 rounded-full transition-colors ${
+                      p.favorited ? 'text-anfeng' : 'text-ink-soft/50 hover:text-anfeng'
+                    }`}
+                  >
+                    <Bookmark className="w-4 h-4" fill={p.favorited ? 'currentColor' : 'none'} />
+                  </button>
+                )}
+              </div>
 
               {/* 回复区 */}
               {p.replies.length > 0 && (
