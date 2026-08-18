@@ -127,7 +127,7 @@ export function WardrobeSection() {
               <Coins className="w-4 h-4 text-qiule" />
               小金库余额
             </div>
-            <div className="mt-1 font-title text-3xl text-qiule">
+            <div className="mt-1 font-title text-2xl text-qiule">
               {data.balance}
               <span className="text-sm text-ink-soft ml-1.5">镜币</span>
             </div>
@@ -222,11 +222,13 @@ export function WardrobeSection() {
           {wearing ? (
             <div>
               <div className="text-xs text-ink-soft mb-2">今天穿的</div>
-              <ZoomableImage
-                src={wearing.image_url}
-                alt={wearing.title}
-                className="w-full max-h-72 object-cover rounded-xl"
-              />
+              <div className="rounded-xl bg-cream/70 border border-warm-line/60 px-3 py-2">
+                <ZoomableImage
+                  src={wearing.image_url}
+                  alt={wearing.title}
+                  className="w-full max-h-96 object-contain rounded-lg"
+                />
+              </div>
               <div className="mt-3 flex items-center gap-2 flex-wrap">
                 <span className="font-title text-lg">{wearing.title}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-crina/12 text-crina-deep">

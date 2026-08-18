@@ -64,7 +64,7 @@ function SettingsInner() {
   }
 
   return (
-    <div className="max-w-xl mx-auto space-y-5">
+    <div className="max-w-2xl mx-auto space-y-5">
       {/* toast */}
       <AnimatePresence>
         {toast && (
@@ -72,7 +72,7 @@ function SettingsInner() {
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-paper rounded-2xl shadow-float border border-baixu/30 px-5 py-3.5 text-sm text-center"
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-paper/85 backdrop-blur-md rounded-2xl shadow-float border border-baixu/30 px-5 py-3.5 text-sm text-center"
           >
             {toast}
           </motion.div>

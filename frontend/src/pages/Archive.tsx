@@ -37,7 +37,7 @@ export function ArchivePage() {
 function ArchiveInner() {
   const [tab, setTab] = useState<Tab>('memories')
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-3xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <h1 className="font-title text-3xl flex items-center gap-2">
           <LibraryBig className="w-7 h-7 text-baixu" />

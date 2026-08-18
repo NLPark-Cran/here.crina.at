@@ -93,5 +93,6 @@ usage_counters(user_id+day+kind uniq, count) 配额原子计数
 ✅ R3.5 独响启发：状态墙（characters.status_text 2-6字，job_status 每30min检查、按居民 4-10h 错开 LLM 换新，门厅卡片 chip 展示）/ 关系数值（users.affinity + engine/affinity.py，自动升 tier）/ 串门事件（job_visit 每天10/15/20点，posts.kind=visit 虚线卡）/ 专注模式（Chat 头部「一起专注」25min 番茄钟浮窗，前端仪式）
 ✅ 二轮深度审查修复：worker 降权（crinawork 用户跑 sandbox 委托，kimi 复制到 /opt/kimi-cli + /usr/local/bin/kimi，HOME 指向沙箱；renovate 仍服务身份）/ 衣橱 pg_advisory_xact_lock 防双花+异常退款+bg.py 异常进日志 / config 移除硬编码观猹 secret / 生成失败不再透出上游细节 / files 三端点统一 is_relative_to+.kimi 拦截 / ICS 独立只读 token（可重置）/ messages.seq BIGSERIAL IDENTITY 排序列 / 会话 updated_at 随消息触碰 / 消息取最新N条再反转 / letters(10/日) posts(30/日) replies(60/日) extract(5/日) Redis 限流(cache.rate_limit) / posts.image_url 仅 /assets/ / 委托先验资格再扣配额 / TTS 成功才计配额 / 施工流先订阅再回放+事件序号 n 去重 / importer engine 模块级单例 / 设置页假开关移除 / Chat pendingFirst 被挡自动补发 / Board 合上复位可重连
 ✅ R4 小屋剖面地图：house_section.webp（seedream 剖面图）+ 6 张 corner_*.webp 氛围角（门厅/客厅/书房 i2i 保连续，委托板/信箱/档案馆独立风格；backend/scripts/gen_house_map.py 可 --only 重生成）；components/HouseMap.tsx 热点导航（坐标按图校准，改图需同步改）+ 悬停氛围角预览 + 走动过渡动画（crina 头像穿过屏幕 780ms 后 navigate）；门厅 Home 新增「小屋地图」区块
-📋 待做（按序）：R5 设计系统升级 / R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
+✅ R5 设计系统 2.0：feed 页 max-w-2xl→3xl、Settings→2xl（桌面利用率）；hero 遮罩减淡（cream/45→15、左 scrim 85→60）；衣橱「今天穿的」object-contain max-h-96 完整显示；小金库数字 text-3xl→2xl；浮层玻璃拟态统一（Toast/ModeDropdown/提议卡/专注浮窗 bg-paper/85+backdrop-blur-md）
+📋 待做（按序）：R6 文档处理 / R7 博客与房间(articles+点赞反应收藏+crina日报)
 📚 调研存档：docs/research/duxiang-ai-moments.md（独响 App 全拆解：异步朋友圈节奏/七层关系数值/一起入睡/情绪兜底猫/居民互相串门）

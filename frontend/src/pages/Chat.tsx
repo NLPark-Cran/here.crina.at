@@ -636,7 +636,7 @@ function ChatInner() {
                     exit={{ opacity: 0, y: 8, height: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-qiule/30 bg-qiule/8 px-3.5 py-2.5">
+                    <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-qiule/30 bg-qiule/10 backdrop-blur-md px-3.5 py-2.5">
                       <Hammer className="w-4 h-4 text-qiule shrink-0" />
                       <p className="flex-1 min-w-0 text-xs text-ink-soft leading-relaxed">
                         这听起来像件活儿——要钉到委托板，让 crina 正儿八经施工吗？
@@ -863,7 +863,7 @@ function ModeDropdown({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: up ? 6 : -6, scale: 0.97 }}
               transition={{ duration: 0.15 }}
-              className={`absolute right-0 z-50 w-64 bg-paper rounded-2xl shadow-float border border-warm-line p-1.5 ${
+              className={`absolute right-0 z-50 w-64 bg-paper/85 backdrop-blur-md rounded-2xl shadow-float border border-warm-line p-1.5 ${
                 up ? 'bottom-full mb-2' : 'top-full mt-2'
               }`}
             >

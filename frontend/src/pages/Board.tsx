@@ -139,7 +139,7 @@ function BoardInner() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-3xl mx-auto">
       <Toast text={toast} onClose={() => setToast('')} />
       <motion.div
         initial={{ opacity: 0, y: 16 }}

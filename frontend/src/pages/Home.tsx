@@ -87,9 +87,9 @@ export function HomePage() {
               }}
             />
           )}
-          {/* scrim：底部与左侧压暖，保证文字可读 */}
-          <div className="absolute inset-0 bg-gradient-to-t from-cream via-cream/45 to-cream/5 pointer-events-none" />
-          <div className="absolute inset-0 bg-gradient-to-r from-cream/85 via-cream/30 to-transparent pointer-events-none" />
+          {/* scrim：底部与左侧轻压暖（克制，别把画面罩灰） */}
+          <div className="absolute inset-0 bg-gradient-to-t from-cream via-cream/15 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-cream/60 via-cream/15 to-transparent pointer-events-none" />
         </motion.div>
 
         {/* 左侧文字：垂直居中偏下 */}

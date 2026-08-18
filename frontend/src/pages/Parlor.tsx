@@ -78,7 +78,7 @@ export function ParlorPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto relative">
+    <div className="max-w-3xl mx-auto relative">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <h1 className="font-title text-3xl flex items-center gap-2">
           <Sofa className="w-7 h-7 text-qiule" />
