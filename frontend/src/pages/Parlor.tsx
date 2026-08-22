@@ -15,7 +15,19 @@ import { useAuth } from '../store/auth'
 
 export function ParlorPage() {
   const { user } = useAuth()
-  const [posts, setPosts] = useState<Post[]>([])
+  // R10.2 客厅快照：挂载即渲染 localStorage 快照（秒开），后台拉新后按内容签名只换有变的卡片
+  const snapKey = `crina:parlor:${user?.id ?? 'anon'}`
+  const [posts, setPosts] = useState<Post[]>(() => {
+    try {
+      const raw = localStorage.getItem(snapKey)
+      if (!raw) return []
+      const snap = JSON.parse(raw)
+      if (Date.now() - snap.ts > 86400_000) return []  // TTL 24h
+      return snap.posts ?? []
+    } catch {
+      return []
+    }
+  })
   const [dailies, setDailies] = useState<ArticleBrief[]>([])
   const [loaded, setLoaded] = useState(false)
   const [draft, setDraft] = useState('')
@@ -30,14 +42,28 @@ export function ParlorPage() {
   const load = useCallback(() => {
     postsApi
       .list(30)
-      .then((d) => setPosts(d.posts))
+      .then((d) => {
+        // 内容签名：id+updated_at+reactions+favorited，只替换有变化的卡片，已展开回复区不被重置
+        const sig = (p: Post) =>
+          `${p.id}|${p.created_at}|${JSON.stringify(p.reactions)}|${p.favorited}`
+        setPosts((old) => {
+          const oldSig = new Map(old.map((p) => [p.id, sig(p)]))
+          const fresh = d.posts
+          const changed =
+            old.length !== fresh.length || fresh.some((p) => oldSig.get(p.id) !== sig(p))
+          return changed ? fresh : old
+        })
+        try {
+          localStorage.setItem(snapKey, JSON.stringify({ ts: Date.now(), posts: d.posts.slice(0, 30) }))
+        } catch { /* 存储满了就静默 */ }
+      })
       .catch(() => {})
       .finally(() => setLoaded(true))
     articlesApi
       .publicFeed('daily')
       .then((d) => setDailies(d.articles.slice(0, 1)))
       .catch(() => {})
-  }, [])
+  }, [snapKey])
 
   /** emoji 反应 toggle：用后端返回的权威 count/on 更新本地 */
   const toggleReact = async (postId: string, emoji: string) => {
@@ -77,6 +103,14 @@ export function ParlorPage() {
       if (refreshTimer.current) clearTimeout(refreshTimer.current)
     }
   }, [load])
+
+  // 反应/收藏后立即把快照改掉，下次秒开就是最新状态
+  useEffect(() => {
+    if (posts.length === 0) return
+    try {
+      localStorage.setItem(snapKey, JSON.stringify({ ts: Date.now(), posts: posts.slice(0, 30) }))
+    } catch { /* 静默 */ }
+  }, [posts, snapKey])
 
   /** 发完帖 10 秒后自动刷新一次——居民可能跑来回复 */
   const scheduleRefresh = () => {

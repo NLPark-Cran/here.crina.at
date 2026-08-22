@@ -17,10 +17,11 @@ import {
   SendHorizonal,
   Timer,
   Trash2,
+  Users,
   Volume2,
   X,
 } from 'lucide-react'
-import { archiveApi, ApiError, chatApi, docsApi, fetchTtsAudio, spaceApi, streamChatMessage } from '../api/client'
+import { archiveApi, ApiError, chatApi, docsApi, fetchPendingChat, fetchTtsAudio, resumeChatStream, spaceApi, streamChatMessage } from '../api/client'
 import type { Character, ChatMessage, ChatMode, Conversation, SpaceDoc } from '../api/types'
 import { AuthGate } from '../components/AuthGate'
 import { CharacterAvatar } from '../components/CharacterAvatar'
@@ -128,6 +129,7 @@ function ChatInner() {
   const [extracting, setExtracting] = useState(false)
   const [toast, setToast] = useState('')
   const [zen, setZen] = useState(false)  // 一键全屏：私聊间铺满整屏
+  const [frameInfo, setFrameInfo] = useState<{ framework: string; note: string } | null>(null)  // 圆桌框架卡
   // 新话题（问候输入框）状态
   const [newChar, setNewChar] = useState('crina')
   const [newMode, setNewMode] = useState<ChatMode>('auto')
@@ -152,6 +154,56 @@ function ChatInner() {
     characters.forEach((c) => m.set(c.id, c))
     return m
   }, [characters])
+
+  /** 断线续流：把 gen_id 挂回会话，重连后续推（R10.1） */
+  const genKey = (cid: string) => `crina:gen:${cid}`
+  const reattach = useCallback(
+    async (convId_: string, genId: string, produced: string) => {
+      sessionStorage.setItem(genKey(convId_), genId)
+      setStreaming(true)
+      const crinaChar = charMap.get('crina')
+      setStreamBubbles([{
+        character: 'crina', name: crinaChar?.name ?? 'crina',
+        color: crinaChar?.color ?? '#8A8FC4', avatarUrl: crinaChar?.avatar_url ?? '',
+        text: produced,
+      }])
+      let lastSpeakerIdx = 0
+      const idxByChar = new Map<string, number>()
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      await resumeChatStream(genId, (ev) => {
+        if (ev.type === 'frame') {
+          setFrameInfo({ framework: ev.framework, note: ev.note })
+        } else if (ev.type === 'speaker') {
+          setStreamBubbles((b) => {
+            lastSpeakerIdx = b.length
+            idxByChar.set(ev.character, b.length)
+            return [...b, { character: ev.character, name: ev.name, color: ev.color, avatarUrl: ev.avatar_url, text: '' }]
+          })
+        } else if (ev.type === 'delta') {
+          setStreamBubbles((b) => {
+            if (b.length === 0) return b
+            const next = [...b]
+            const i = idxByChar.get(ev.character) ?? Math.min(lastSpeakerIdx, next.length - 1)
+            next[i] = { ...next[i], text: next[i].text + ev.text }
+            return next
+          })
+        } else if (ev.type === 'error') {
+          setError(ev.message)
+        }
+      }, ctrl.signal).catch(() => {})
+      sessionStorage.removeItem(genKey(convId_))
+      setStreamBubbles([])
+      setFrameInfo(null)
+      setStreaming(false)
+      // 重挂结束：以权威历史为准重拉一次
+      chatApi.detail(convId_).then((d) => {
+        setActive(d)
+        setMessages(d.messages)
+      }).catch(() => {})
+    },
+    [charMap],
+  )
 
   const loadConversations = useCallback(() => {
     chatApi.list().then((d) => setConversations(d.conversations)).catch(() => {})
@@ -200,11 +252,14 @@ function ChatInner() {
       setMessages((m) => [...m, optimistic])
       setStreaming(true)
       setStreamBubbles([])
+      setFrameInfo(null)
       const ctrl = new AbortController()
       abortRef.current = ctrl
 
       // delta 按 50ms 节流合批：字符先进缓冲区，到点一次性 flush，减少 setState 次数
-      let deltaBuf = ''
+      // 圆桌并行推流会交错，按 (character → 最新气泡) 分桶
+      const deltaBufs = new Map<string, string>()
+      const bubbleIdx = new Map<string, number>()  // character → 气泡下标
       let lastSpeaker: StreamBubble = {
         character: 'crina',
         name: charMap.get('crina')?.name ?? 'crina',
@@ -213,13 +268,16 @@ function ChatInner() {
         text: '',
       }
       const flushDelta = () => {
-        if (!deltaBuf) return
-        const text = deltaBuf
-        deltaBuf = ''
+        if (deltaBufs.size === 0) return
+        const batch = new Map(deltaBufs)
+        deltaBufs.clear()
         setStreamBubbles((b) => {
-          if (b.length === 0) return [{ ...lastSpeaker, text }]
           const next = [...b]
-          next[next.length - 1] = { ...next[next.length - 1], text: next[next.length - 1].text + text }
+          for (const [cid, text] of batch) {
+            const i = bubbleIdx.get(cid) ?? next.length - 1
+            if (next.length === 0) return [{ ...lastSpeaker, text }]
+            next[i] = { ...next[i], text: next[i].text + text }
+          }
           return next
         })
       }
@@ -229,7 +287,12 @@ function ChatInner() {
         conv.id,
         content,
         (ev) => {
-          if (ev.type === 'speaker') {
+          if (ev.type === 'gen') {
+            sessionStorage.setItem(genKey(conv.id), ev.gen_id)
+          } else if (ev.type === 'frame') {
+            // 圆桌三幕：框架卡（R10.3）
+            setFrameInfo({ framework: ev.framework, note: ev.note })
+          } else if (ev.type === 'speaker') {
             flushDelta()
             lastSpeaker = {
               character: ev.character,
@@ -238,9 +301,12 @@ function ChatInner() {
               avatarUrl: ev.avatar_url,
               text: '',
             }
-            setStreamBubbles((b) => [...b, { ...lastSpeaker }])
+            setStreamBubbles((b) => {
+              bubbleIdx.set(ev.character, b.length)
+              return [...b, { ...lastSpeaker }]
+            })
           } else if (ev.type === 'delta') {
-            deltaBuf += ev.text
+            deltaBufs.set(ev.character, (deltaBufs.get(ev.character) ?? '') + ev.text)
           } else if (ev.type === 'error') {
             setError(ev.message)
           }
@@ -255,6 +321,7 @@ function ChatInner() {
       })
       clearInterval(flushTimer)
       flushDelta()
+      sessionStorage.removeItem(genKey(conv.id))
 
       // 竞态防护：流被切换会话打断时，不把半截气泡固化进新会话
       if (ctrl.signal.aborted || abortRef.current !== ctrl) {
@@ -293,6 +360,7 @@ function ChatInner() {
     let stale = false
     abortRef.current?.abort()
     setStreamBubbles([])
+    setFrameInfo(null)
     setStreaming(false)
     pinnedRef.current = true
     chatApi
@@ -305,7 +373,17 @@ function ChatInner() {
           const first = pendingFirstRef.current
           pendingFirstRef.current = null
           void sendTo(d, first)
+          return
         }
+        // 断线续流：先查 sessionStorage（本机刚断），再查服务端 pending（翻页/换设备回来）
+        const savedGen = sessionStorage.getItem(genKey(convId))
+        if (savedGen) {
+          void reattach(convId, savedGen, '')
+          return
+        }
+        fetchPendingChat(convId).then((p) => {
+          if (!stale && p) void reattach(convId, p.gen_id, p.text)
+        }).catch(() => {})
       })
       .catch((e) => {
         if (stale) return
@@ -625,6 +703,19 @@ function ChatInner() {
                     charMap={charMap}
                   />
                 ),
+              )}
+              {/* 圆桌三幕：框架卡 */}
+              {frameInfo && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex justify-center"
+                >
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-crina/10 border border-crina/25 text-xs text-crina-deep">
+                    <Users className="w-3.5 h-3.5" />
+                    圆桌开席 · {frameInfo.framework} —— {frameInfo.note}
+                  </div>
+                </motion.div>
               )}
               {streamBubbles.map((b, i) => {
                 const { main, aside } = splitAside(b.text, true)

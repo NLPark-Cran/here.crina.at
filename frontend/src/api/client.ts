@@ -202,6 +202,23 @@ export async function streamChatMessage(
   await readSseStream(res, onEvent, '发送失败')
 }
 
+/** 断线续流：查询会话进行中生成 + 从断点重挂（R10.1） */
+export async function fetchPendingChat(convId: string): Promise<{ gen_id: string; text: string } | null> {
+  const d = await get<{ pending: { gen_id: string; text: string } | null }>(
+    `/api/chat/pending?conversation_id=${convId}`,
+  )
+  return d.pending
+}
+
+export async function resumeChatStream(
+  genId: string,
+  onEvent: (ev: ChatStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/chat/stream/${genId}`, { credentials: 'include', signal })
+  await readSseStream(res, onEvent, '续流失败')
+}
+
 /** TTS：返回 audio/mpeg 的 Blob */
 export async function fetchTtsAudio(text: string, characterId: string): Promise<Blob> {
   const res = await fetch('/api/chat/tts', {

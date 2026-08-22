@@ -132,6 +132,8 @@ export interface ConversationDetail extends Conversation {
 
 // SSE 流式事件
 export type ChatStreamEvent =
+  | { type: 'gen'; gen_id: string }
+  | { type: 'frame'; framework: string; note: string }
   | { type: 'speaker'; character: string; name: string; color: string; avatar_url: string }
   | { type: 'delta'; character: string; text: string }
   | { type: 'done' }

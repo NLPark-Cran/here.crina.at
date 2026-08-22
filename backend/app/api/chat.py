@@ -123,10 +123,59 @@ async def delete_conversation(conv_id: str, user: User = Depends(get_current_use
 @router.post("/conversations/{conv_id}/messages")
 async def send_message(conv_id: str, body: SendMessage, user: User = Depends(get_current_user),
                        db: AsyncSession = Depends(get_db)):
+    from ..bg import fire_and_forget
+    from ..engine import resume
     from .docs import load_doc_context
     doc_ctx = await load_doc_context(db, user, body.doc_ids)
+    gen_id = await resume.start_gen(conv_id, str(user.id))
+
+    async def _produce():
+        """detached 生产者：客户端断开也继续生成（R10.1）"""
+        import json
+        import logging
+
+        from ..db import SessionLocal
+        accumulated = ""
+        try:
+            async with SessionLocal() as s:
+                fresh = await s.get(User, user.id)
+                async for frame in engine.stream_reply(conv_id, fresh, body.content, s,
+                                                       doc_ctx, aside=not body.no_aside):
+                    try:
+                        ev = json.loads(frame.removeprefix("data:").strip())
+                        if ev.get("type") == "delta":
+                            accumulated += ev.get("text", "")
+                    except Exception:
+                        pass
+                    await resume.push_event(gen_id, frame, accumulated)
+            await resume.finish_gen(gen_id, "done")
+        except Exception:
+            logging.getLogger("crina.resume").exception("生成生产者失败 gen=%s", gen_id)
+            await resume.push_event(gen_id, engine.sse({"type": "error", "message": "刚才脑子打了个结，再说一次试试？"}))
+            await resume.finish_gen(gen_id, "error")
+
+    fire_and_forget(_produce())
     return StreamingResponse(
-        engine.stream_reply(conv_id, user, body.content, db, doc_ctx, aside=not body.no_aside),
+        resume.follow(gen_id, str(user.id)),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/pending")
+async def chat_pending(conversation_id: str, user: User = Depends(get_current_user)):
+    """该会话进行中的生成（断线找回用）"""
+    from ..engine import resume
+    p = await resume.pending_for(conversation_id, str(user.id))
+    return {"pending": p}
+
+
+@router.get("/stream/{gen_id}")
+async def chat_stream_resume(gen_id: str, user: User = Depends(get_current_user)):
+    """从断点重挂流：已产出的先一次性补发，然后继续推"""
+    from ..engine import resume
+    return StreamingResponse(
+        resume.follow(gen_id, str(user.id)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

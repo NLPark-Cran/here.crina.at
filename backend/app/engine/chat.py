@@ -172,50 +172,111 @@ async def stream_reply(conversation_id: str, user: User, content: str,
     yield sse({"type": "done"})
 
 
+FRAMEWORKS = "SWOT分析 / 六顶帽 / 第一性原理 / 辩论赛"
+
+FRAME_PROMPT = """你是圆桌脑暴的主持人。按话题性质选一个讨论框架，并指定 2-3 位居民各自的分工视角。
+可选框架：__FRAMEWORKS__
+（价值观/伦理类 → 辩论赛或六顶帽；决策/选择类 → SWOT；本质追问类 → 第一性原理）
+可选居民：__CHARS__
+只输出 JSON：{"framework": "框架名", "note": "一句话开场白（15字内，主持人语气）", "roles": [{"id": "居民id", "angle": "ta负责的角度（15字内）"}]}
+
+话题：__TOPIC__"""
+
+CONCLUDE_PROMPT = """圆桌脑暴收束。居民们刚围绕话题独立发表了看法（互相没看过对方的答案）。
+你作为主持人给出四段式报告，每段一两句话：
+## 共识
+## 分歧
+## 盲点
+## 建议
+保持你自己的人格语气，别写成公文。
+
+话题：__TOPIC__
+各位的发言：
+__ANSWERS__"""
+
+
 async def _brainstorm(db: AsyncSession, user: User, conversation: Conversation,
                       main_char: Character, api_key: str | None,
                       exchange: list[dict], aside: bool = True) -> AsyncGenerator[str, None]:
-    """脑暴圆桌：选 2-3 位居民 + 主角收尾"""
+    """三幕圆桌：主持人定框架 → 2-3 位居民并行独立作答 → 主持人四段收束（R10.3）"""
+    import asyncio
+
     chars = (await db.execute(select(Character).where(
         Character.id.in_(BRAINSTORM_CANDIDATES), Character.active == True))).scalars().all()  # noqa: E712
     char_map = {c.id: c for c in chars}
+    topic = exchange[0]['content'][:200]
 
-    # 轻量规划：让模型挑居民
-    pick_prompt = (
-        "圆桌脑暴即将开始。话题如下。从居民中选择 2 位最适合参与讨论的（考虑各自视角互补），"
-        "只输出 id 逗号分隔。\n"
-        f"可选居民：{', '.join(f'{c.id}({c.tagline})' for c in chars)}\n"
-        f"话题：{exchange[0]['content'][:200]}"
-    )
-    picked: list[str] = []
+    # 第一幕：定框架 + 分工
+    framework, note, roles = "自由讨论", "大家随便聊聊", []
     try:
-        raw = await tokendance.chat_once([{"role": "user", "content": pick_prompt}],
-                                         api_key=api_key, temperature=0.4, max_tokens=40)
-        picked = [p.strip() for p in raw.replace("，", ",").split(",") if p.strip() in char_map][:2]
+        raw = await tokendance.chat_once(
+            [{"role": "user", "content": FRAME_PROMPT
+                .replace("__FRAMEWORKS__", FRAMEWORKS)
+                .replace("__CHARS__", ', '.join(f'{c.id}({c.tagline})' for c in chars))
+                .replace("__TOPIC__", topic)}],
+            api_key=api_key, temperature=0.4, max_tokens=300)
+        plan = json.loads(raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+        framework = str(plan.get("framework", framework))[:20]
+        note = str(plan.get("note", note))[:50]
+        roles = [r for r in plan.get("roles", []) if r.get("id") in char_map][:3]
     except Exception:
         pass
-    if not picked:
-        picked = [cid for cid in ("anfeng", "baixu") if cid in char_map][:2]
+    if not roles:  # 兜底
+        roles = [{"id": cid, "angle": "自由发挥"}
+                 for cid in ("anfeng", "baixu") if cid in char_map][:2]
+    yield sse({"type": "frame", "framework": framework, "note": note})
 
-    for cid in picked:
-        c = char_map[cid]
+    # 第二幕：并行独立作答（互不看到对方答案），事件经队列汇合后按到达顺序推流
+    queue: asyncio.Queue = asyncio.Queue()
+    answers: list[tuple[str, str]] = []  # (name, full)
+
+    async def run_one(char_id: str, angle: str):
+        # 并行任务必须用各自独立的 session（AsyncSession 不可并发共享，禁跨 session 用 ORM 对象）
+        from ..db import SessionLocal
+        full = ""
+        try:
+            async with SessionLocal() as s:
+                fresh_user = await s.get(User, user.id)
+                char = await s.get(Character, char_id)
+                conv = await s.get(Conversation, conversation.id)
+                note_ = f"（圆桌脑暴·{framework}：你负责「{angle}」视角，简洁发言 100 字左右，独立作答不要引用别人）"
+                async for etype, text in _stream_character(s, fresh_user, char, conv, "brainstorm",
+                                                           api_key, note_, aside=aside):
+                    if etype == "delta":
+                        await queue.put(("delta", char_id, text))
+                    elif etype == "saved":
+                        full = text
+        except Exception:
+            await queue.put(("delta", char_id, "（走麦城了，跳过我吧）"))
+        await queue.put(("char_done", char_map[char_id], full))
+
+    # 先发各 speaker 事件（前端建好气泡），再汇流
+    picked_chars = [char_map[r["id"]] for r in roles]
+    for c in picked_chars:
         yield sse({"type": "speaker", "character": c.id, "name": c.name,
                    "color": c.color, "avatar_url": c.avatar_url})
-        note = "（圆桌脑暴进行中，请从你的独特视角简洁地发表看法，可以接前一位的话，100 字左右）"
-        full = ""
-        async for etype, text in _stream_character(db, user, c, conversation, "brainstorm", api_key, note, aside=aside):
-            if etype == "delta":
-                yield sse({"type": "delta", "character": c.id, "text": text})
-            elif etype == "saved":
-                full = text
-        exchange.append({"role": "assistant", "content": f"【{c.name}】{full}"})
+    tasks = [asyncio.create_task(run_one(r["id"], r.get("angle", "自由发挥")))
+             for r in roles]
+    done_count = 0
+    while done_count < len(tasks):
+        ev = await queue.get()
+        if ev[0] == "delta":
+            yield sse({"type": "delta", "character": ev[1], "text": ev[2]})
+        else:
+            _, c, full = ev
+            answers.append((c.name, full))
+            exchange.append({"role": "assistant", "content": f"【{c.name}】{full}"})
+            done_count += 1
+    await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 主角收尾
+    # 第三幕：主持人四段收束
     yield sse({"type": "speaker", "character": main_char.id, "name": main_char.name,
                "color": main_char.color, "avatar_url": main_char.avatar_url})
-    note = "（圆桌脑暴收尾：综合大家的观点给出你的想法，自然一点，别像总结报告）"
+    answers_block = "\n".join(f"{name}：{text[:300]}" for name, text in answers)
+    note_ = CONCLUDE_PROMPT.replace("__TOPIC__", topic).replace("__ANSWERS__", answers_block)
     full = ""
-    async for etype, text in _stream_character(db, user, main_char, conversation, "brainstorm", api_key, note, aside=aside):
+    async for etype, text in _stream_character(db, user, main_char, conversation, "brainstorm",
+                                               api_key, note_, aside=aside):
         if etype == "delta":
             yield sse({"type": "delta", "character": main_char.id, "text": text})
         elif etype == "saved":
