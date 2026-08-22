@@ -103,5 +103,6 @@ usage_counters(user_id+day+kind uniq, count) 配额原子计数
 ✅ R8.1 DayPlan：day_plans 表（events JSON 结构体 slot/kind/location/activity/mood/note，character+date 唯一）+ engine/dayplan.py（凌晨 04:30 job_dayplan 批量生成/昨天剧本作连续性输入/失败按作息兜底/启动补跑幂等）+ wttr.in 杭州天气（Redis 6h，全空间一致）+ 六出口共享状态（状态墙/串门/autopost/日报取材当前事件，私聊注入「你此刻正在…」）+ prompt 防跨居民安排行动
 ✅ R8.3 情感日记：diaries 表（无用户可见 API，AI 的隐私）+ engine/diary.py（聊后守门员 worth 二元判断+事件直写：塞零花钱/买衣物+DayPlan 开头心情）+ job_mood_digest 13:40/21:40 汇总近3天日记→characters.mood_note 注入私聊（叙事化，不数值展示）
 ✅ R8 卧室：corner_bedroom.webp（i2i 保连续）+ HouseMap 卧室热点（右上窗帘角 x88 y16）+ /bedroom 页（月光 hero+时间感知文案+crina 在场状态+说晚安→crina 私聊）
+✅ 安风反馈四项修复（ceff0a8）：presence 接 DayPlan（job_presence 按当前剧本事件 LLM 浓缩+活动级缓存，随机池仅兜底，消灭「门厅打盹」瞬移；crina 池「门厅」→「房间」）/ 亲密度分档（build_context 按 relation_tier 注入亲昵度指引：老友可撒娇贴贴、熟人自在开玩笑）/ crina_full.webp 加 ?v=2 破 nginx 30d 强缓存（文件本透明底，旧缓存致白底）/ 加载文案「搬椅子上楼」→「推门进去中」
 📋 待做：R9 记忆（守门员+topK 四选一/防自我强化+主客体过滤/关联图两跳/摘抄即记忆）→ R10 工程（SSE 续流/客厅快照/圆桌三幕）——详见 docs/research/alice-gap.md；遗留低优先：JWT 黑名单、观猹 secret 轮换、cron 闹钟未装
 📚 调研存档：docs/research/duxiang-ai-moments.md（独响 App 全拆解：异步朋友圈节奏/七层关系数值/一起入睡/情绪兜底猫/居民互相串门）
