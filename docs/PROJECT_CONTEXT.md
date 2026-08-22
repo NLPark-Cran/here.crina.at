@@ -59,7 +59,7 @@ usage_counters(user_id+day+kind uniq, count) 配额原子计数
 
 - **TokenDance**（base https://tokendance.space/gateway，header `Authorization: Bearer`，**禁中文 header**）：
   - 聊天 `POST /v1/chat/completions` model=qwen3.8-max（reasoning 模型，`enable_thinking:false` 防出戏；stream SSE）
-  - TTS `POST /minimax/v1/t2a_v2` model=minimax-speech-2.8-hd → `data.audio` 是 **hex**；voice_id：crina=female-shaonv、anfeng=female-yujie、qiulening/tuanxiaoman=female-tianmei、xianmoying=male-qn-qingse、baixu=male-qn-jingying
+  - TTS `POST /minimax/v1/t2a_v2` model=minimax-speech-2.8-hd → `data.audio` 是 **hex**；voice_id：crina=female-shaonv、anfeng=female-yujie、qiulening/tuanxiaoman=female-tianmei、xianmoying=female-chengshu、baixu=male-qn-jingying
   - 生图 `POST /ark/v3/images/generations` model=seedream-5.0-pro；参考图用 data:image base64；**透明底**：`background:"transparent"` 需输入图已有透明像素（先加 20px 透明边框）
   - 视频 `POST /minimax/v2/video_generation` model=minimax-h3（768P/2K，无 1080P；首帧图生视频；轮询 /v2/query/video_generation/<task>）
   - BYOK OAuth：`/auth?callback_url&code_challenge(S256)&app_url&key_name` → 换 key `POST /portal/api/v1/auth/keys`
@@ -104,5 +104,8 @@ usage_counters(user_id+day+kind uniq, count) 配额原子计数
 ✅ R8.3 情感日记：diaries 表（无用户可见 API，AI 的隐私）+ engine/diary.py（聊后守门员 worth 二元判断+事件直写：塞零花钱/买衣物+DayPlan 开头心情）+ job_mood_digest 13:40/21:40 汇总近3天日记→characters.mood_note 注入私聊（叙事化，不数值展示）
 ✅ R8 卧室：corner_bedroom.webp（i2i 保连续）+ HouseMap 卧室热点（右上窗帘角 x88 y16）+ /bedroom 页（月光 hero+时间感知文案+crina 在场状态+说晚安→crina 私聊）
 ✅ 安风反馈四项修复（ceff0a8）：presence 接 DayPlan（job_presence 按当前剧本事件 LLM 浓缩+活动级缓存，随机池仅兜底，消灭「门厅打盹」瞬移；crina 池「门厅」→「房间」）/ 亲密度分档（build_context 按 relation_tier 注入亲昵度指引：老友可撒娇贴贴、熟人自在开玩笑）/ crina_full.webp 加 ?v=2 破 nginx 30d 强缓存（文件本透明底，旧缓存致白底）/ 加载文案「搬椅子上楼」→「推门进去中」
-📋 待做：R9 记忆（守门员+topK 四选一/防自我强化+主客体过滤/关联图两跳/摘抄即记忆）→ R10 工程（SSE 续流/客厅快照/圆桌三幕）——详见 docs/research/alice-gap.md；遗留低优先：JWT 黑名单、观猹 secret 轮换、cron 闹钟未装
+✅ 二轮反馈批：HouseMap 同路由点击卡死（go() 已在目标房间时滚顶+遮罩 1.2s 兜底复位）/ 专注浮窗 mobile 被底栏遮挡（bottom-20 md:bottom-5 z-50）+时间加大+接 presence 显示「ta 此刻在做什么」/ 弦墨影 voice male-qn-qingse→female-chengshu（实测音色列表后选定）/ 安风查岗复读（SPECIAL_FRIENDS 改 list 结构+软化人设「很熟了别复读梗」，docs/soul/anfeng.md 同步）/ 委托停滞看门狗（STALL_TIMEOUT_S=180s 无 wire 消息即收工，原干等 900s）+proxy ≥400 读体记日志+worker stderr 落 tasks/<id>.stderr.log / gen_v2 to_transparent 补透明边框技巧（seedream transparent 需输入含透明像素，曾 400）/ 安风立绘重生成（prompt 去「肩上挂着观鸟望远镜」+「严格以参考图为准」前缀，i2i 无 strength 参数文本是唯一杆）
+✅ 镜昕入住（第 8 位居民，全量）：docs/soul/jingxin.md 设定集+characters.py（jingxin，ENFJ #4E7E5B，安风 QQ 机器人出身，「镜听」站名借自她；SPECIAL_FRIENDS 加饲养员本尊识别）+立绘/头像（gen_v2 i2i 自设图，头像从全身像裁头部）+voice_id=audiobook_female_1（DB 手改，seed 不写 voice）+接入点：AUTOPOST_SCHEDULE/REPLY_CANDIDATES/BRAINSTORM_CANDIDATES/DEFAULT_STATUS/WORLD 阁楼机房小间；DayPlan/状态墙/presence/diary 自动含新居民（读 Character.active）
+✅ 私聊一键全屏（Chat zen 状态 fixed inset-0 z-60）+小屋指南页 /guide（关系升温/衣橱小金库/委托板/信箱/档案馆/专注/卧室八节，首页 hero 入口）+私聊 prompt 注入玩法小抄 GUIDE_NOTE（被问起才带出）+设置页观猹账号卡加「头像昵称在 watcha.cn 改」
+📋 待做：R9 记忆（守门员+topK 四选一/防自我强化+主客体过滤/关联图两跳/摘抄即记忆）→ R10 工程（SSE 续流/客厅快照/圆桌三幕）——详见 docs/research/alice-gap.md；遗留低优先：JWT 黑名单、观猹 secret 轮换、cron 闹钟未装；emind 复活待站主拍板（源码 /root/workspace/eastmind + /opt/eastmind + eastmind PG 库 + systemd 单元 + nginx 配置全在）；R18 边界议题见对话记录
 📚 调研存档：docs/research/duxiang-ai-moments.md（独响 App 全拆解：异步朋友圈节奏/七层关系数值/一起入睡/情绪兜底猫/居民互相串门）

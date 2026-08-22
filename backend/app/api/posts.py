@@ -114,7 +114,7 @@ async def timeline(limit: int = 30, user: User | None = Depends(get_current_user
 
 
 # 居民自主回帖的概率与人选
-REPLY_CANDIDATES = ["crina", "anfeng", "tuanxiaoman", "qiulening", "xianmoying", "baixu"]
+REPLY_CANDIDATES = ["crina", "anfeng", "tuanxiaoman", "qiulening", "xianmoying", "baixu", "jingxin"]
 
 
 async def _character_reply_bg(post_id: str, content: str):

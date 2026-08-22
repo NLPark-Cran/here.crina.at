@@ -18,7 +18,7 @@ from .affinity import bump_affinity
 
 settings = get_settings()
 
-BRAINSTORM_CANDIDATES = ["anfeng", "xianmoying", "baixu", "tuanxiaoman", "qiulening"]
+BRAINSTORM_CANDIDATES = ["anfeng", "xianmoying", "baixu", "tuanxiaoman", "qiulening", "jingxin"]
 
 
 async def get_user_api_key(db: AsyncSession, user: User, kind: str) -> tuple[str | None, bool]:

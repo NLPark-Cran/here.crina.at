@@ -82,6 +82,7 @@ max_context_size = 262144
 """
 
 TASK_TIMEOUT_S = 900  # 单任务最长 15 分钟
+STALL_TIMEOUT_S = 180  # 无任何 wire 消息的停滞上限（上游 400 静默挂起的兜底）
 
 
 RENOVATE_AGENTS_MD = """# 你是 crina（空间装修形态）
@@ -131,11 +132,13 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
         sandbox = ensure_user_sandbox(user_id, proxy_base)
         _chown_tree(sandbox.parent)  # worker 以低权用户运行，沙箱要可写
         preexec = _demote_preexec()
+    # stderr 落任务日志，保留崩溃现场（上游 400 挂起等问题可查）
+    err_log = open(sandbox.parent / "tasks" / f"{task_id}.stderr.log", "ab")  # noqa: ASYNC230
     proc = await asyncio.create_subprocess_exec(
         settings.kimi_bin, "--wire", "-w", str(sandbox),
         "--config-file", str(sandbox.parent / "kimi.toml"),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=err_log,
         preexec_fn=preexec,
         # 低权用户无 home：把 HOME 指到沙箱根，kimi 的缓存/日志也落在里面
         env={**os.environ, "HOME": str(sandbox.parent)} if preexec else None,
@@ -166,9 +169,14 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
                 yield {"type": "error", "message": "委托超时了，crina 先收工"}
                 break
             try:
-                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+                raw = await asyncio.wait_for(
+                    proc.stdout.readline(), timeout=min(remaining, STALL_TIMEOUT_S))
             except TimeoutError:
-                yield {"type": "error", "message": "委托超时了，crina 先收工"}
+                if deadline - asyncio.get_event_loop().time() <= 0:
+                    yield {"type": "error", "message": "委托超时了，crina 先收工"}
+                else:
+                    yield {"type": "error",
+                           "message": "worker 卡住超过 3 分钟没有动静，crina 先收工"}
                 break
             if not raw:
                 yield {"type": "error", "message": "worker 意外退出"}
@@ -214,4 +222,5 @@ async def run_task(task_id: str, user_id: uuid.UUID, prompt: str, api_key: str,
         except ProcessLookupError:
             pass
         await proc.wait()
+        err_log.close()
         await proxy.burn_token(px_token)

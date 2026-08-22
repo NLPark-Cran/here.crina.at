@@ -17,7 +17,10 @@ def call(body, timeout=240):
     req = urllib.request.Request(URL, data=json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {KEY}",
                                           "Content-Type": "application/json"})
-    return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
+    try:
+        return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:400].decode('utf-8', 'replace')}") from e
 
 
 def b64_of(path: Path) -> str:
@@ -46,12 +49,26 @@ def gen_base(name: str, prompt: str, ref: Path | None) -> Path:
     return tmp
 
 
+def _with_transparent_border(path: Path, border: int = 20) -> bytes:
+    """seedream 的 transparent 背景要求输入 PNG 至少含一个透明像素：加一圈透明边框"""
+    import io
+
+    from PIL import Image
+
+    im = Image.open(path).convert("RGBA")
+    canvas = Image.new("RGBA", (im.width + border * 2, im.height + border * 2), (0, 0, 0, 0))
+    canvas.paste(im, (border, border))
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def to_transparent(name: str, base: Path, out_name: str):
     """以立绘为唯一参考图，输出透明背景版"""
     body = {
         "model": "seedream-5.0-pro",
         "prompt": "保持图中人物完全不变（造型、配色、姿势、表情一致），仅去除背景，输出纯透明背景的全身立绘。",
-        "image": b64_of(base),
+        "image": "data:image/png;base64," + base64.b64encode(_with_transparent_border(base)).decode(),
         "size": "2K",
         "output_format": "png",
         "response_format": "b64_json",
@@ -65,15 +82,23 @@ def to_transparent(name: str, base: Path, out_name: str):
 JOBS = [
     # (name, 基底prompt, 参考图)
     ("crina",
+     "严格以参考图为准：服装、发型、配饰完全照参考图绘制，不要添加参考图中没有的道具。"
      "以参考图中的动漫少女为主体，生成正常头身比例（约七头身、身形修长自然，不要Q版大头）的全身立绘："
      "蓝紫色长卷发、异色瞳（左眼森林绿、右眼琥珀棕）、头发别着小发卡，穿米白色针织衫和浅灰长裙，"
      "手里抱着一杯桂花茶，站姿自然挺拔，温暖带一点狡黠的微笑。日系柔和插画风，纯色背景。",
      SRC / "avatar.jpg"),
     ("anfeng",
-     "以参考图中的狐耳少女为主体（注意：红发带浅金色渐变发尾、异色瞳左绿右蓝、圆框眼镜、黑色X形发卡、"
+     "严格以参考图为准：服装、发型、配饰完全照参考图绘制，不要添加参考图中没有的道具。"
+     "以参考图中的狐耳少女为主体（红发带浅金色渐变发尾、异色瞳左绿右蓝、圆框眼镜、黑色X形发卡、"
      "左眼下有小三角面纹、得意吐舌坏笑），生成正常头身比例（约七头身、不要Q版大头）的全身立绘："
-     "穿黑色白边襟线外套和长靴，肩上挂着观鸟望远镜，一手插兜。日系柔和插画风，纯色背景。",
+     "穿黑色白边襟线外套和长靴，一手插兜。日系柔和插画风，纯色背景。",
      SRC / "安风自设新图.png"),
+    ("jingxin",
+     "严格以参考图为准：服装、发型、配饰完全照参考图绘制，不要添加参考图中没有的道具。"
+     "以参考图中的少女为主体（深绿色长直发、右上方一个小侧马尾、下半框眼镜、异色瞳左眼绿右眼深蓝、"
+     "左耳蓝色尖刺耳钉和黄色三角耳坠、困倦淡定的表情），生成正常头身比例（约七头身、不要Q版大头）"
+     "的全身立绘：穿参考图中的深蓝色格子衬衫，搭配深色长裤，手里捧着一杯热茶。日系柔和插画风，纯色背景。",
+     SRC / "镜昕自设.png"),
     ("xianmoying",
      "一位安静的高个子中性风少女（比身边人都高挑的清瘦女孩）：黑色中长碎发垂到下颌，深色高领毛衣"
      "外披垂坠感长风衣，耳机挂在脖子上，手里捏着一张手写乐谱，神情安静疏离但不冷漠，站姿笔直。"

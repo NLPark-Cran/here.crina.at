@@ -54,6 +54,22 @@ async def chat_completions(token: str, request: Request):
     )
     resp = await client.send(req, stream=True)
 
+    if resp.status_code >= 400:
+        # 上游错误先读体记日志再 relay，否则 400 静默挂起无从排查
+        err_body = (await resp.aread())[:500]
+        log.warning("tokendance 上游 %s: %s", resp.status_code, err_body.decode("utf-8", "replace"))
+
+        async def err_relay():
+            yield err_body
+            await resp.aclose()
+            await client.aclose()
+
+        return StreamingResponse(
+            err_relay(),
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+        )
+
     async def relay():
         try:
             async for chunk in resp.aiter_raw():

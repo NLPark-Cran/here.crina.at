@@ -132,7 +132,7 @@ async def generate_plan(char: Character, plan_date: date, weather: str,
 
 
 async def job_dayplan():
-    """每天凌晨 04:30：取杭州天气，为 7 位居民各写一份全天剧本（幂等，已有则跳过）"""
+    """每天凌晨 04:30：取杭州天气，为每位居民各写一份全天剧本（幂等，已有则跳过）"""
     today = datetime.now(CST).date()
     weather = await fetch_weather()
     async with SessionLocal() as db:

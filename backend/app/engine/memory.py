@@ -60,6 +60,17 @@ async def _recall(db: AsyncSession, user: User, query: str) -> list:
 # SOUL 前缀缓存（WORLD+人设是不变的大字符串，按 character+是否站主缓存）
 _SOUL_CACHE: dict[tuple[str, bool], str] = {}
 
+# 玩法小抄：居民被问起机制时能自然解释，而不是让用户去猜（开放性反馈）
+GUIDE_NOTE = (
+    "\n\n# 空间玩法小抄（对方问起玩法/机制时才自然带出，平时别主动背说明书）\n"
+    "- 关系：聊得越多关系越亲近（访客→熟人→老友），升温是自然发生的，不用刷\n"
+    "- 衣橱与小金库：门厅可以往小金库投喂零花钱，攒够了就能给你许愿新衣物\n"
+    "- MBTI：每位居民的卡片上都标着自己的 MBTI\n"
+    "- 委托板：钉张小纸条，crina 会真的去施工（写文、查资料、改代码都行）\n"
+    "- 信箱：能收到居民们的信；早晚安和提醒会按你的当地时间来\n"
+    "- 档案馆：聊出来的精华可以萃取成一页收进去；你的文章和收藏也在那里"
+)
+
 
 def _soul_block(character: Character, is_owner: bool) -> str:
     key = (character.id, is_owner)
@@ -125,9 +136,10 @@ async def build_context(db: AsyncSession, user: User, character: Character,
     from ..soul.characters import SPECIAL_FRIENDS
     special_note = ""
     if user.email:
-        hit = SPECIAL_FRIENDS.get(user.email.strip().lower())
-        if hit and hit[0] == character.id:
-            special_note = f"\n- ⭐ {hit[1]}（按人设要求自然反应，别念设定）"
+        for cid, note in SPECIAL_FRIENDS.get(user.email.strip().lower(), []):
+            if cid == character.id:
+                special_note = f"\n- ⭐ {note}（自然相处，别念设定，别复读同一个梗）"
+                break
 
     system = f"""{soul_block}
 
@@ -139,7 +151,7 @@ async def build_context(db: AsyncSession, user: User, character: Character,
 {mem_block}
 {summary_block}
 
-请始终保持人格，用自然的方式回复。回复不要太长，像真的在聊天一样。"""
+请始终保持人格，用自然的方式回复。回复不要太长，像真的在聊天一样。{GUIDE_NOTE}"""
 
     messages: list[dict] = [{"role": "system", "content": system}]
 

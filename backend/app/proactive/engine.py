@@ -34,9 +34,9 @@ CST = timezone(timedelta(hours=8))
 # 居民作息：(时段, 权重) —— 弦墨影只在深夜出没
 AUTOPOST_SCHEDULE = {
     8: ["crina", "qiulening", "tuanxiaoman"],
-    12: ["tuanxiaoman", "anfeng", "crina"],
-    18: ["crina", "anfeng", "qiulening", "baixu"],
-    23: ["xianmoying", "xianmoying", "baixu"],
+    12: ["tuanxiaoman", "anfeng", "crina", "jingxin"],
+    18: ["crina", "anfeng", "qiulening", "baixu", "jingxin"],
+    23: ["xianmoying", "xianmoying", "baixu", "jingxin"],
 }
 
 HOLIDAYS = {

@@ -8,6 +8,8 @@ import {
   Compass,
   Hammer,
   Loader2,
+  Maximize2,
+  Minimize2,
   NotebookPen,
   Package,
   Paperclip,
@@ -125,6 +127,7 @@ function ChatInner() {
   const [error, setError] = useState('')
   const [extracting, setExtracting] = useState(false)
   const [toast, setToast] = useState('')
+  const [zen, setZen] = useState(false)  // 一键全屏：私聊间铺满整屏
   // 新话题（问候输入框）状态
   const [newChar, setNewChar] = useState('crina')
   const [newMode, setNewMode] = useState<ChatMode>('auto')
@@ -541,9 +544,11 @@ function ChatInner() {
 
       {/* 主区域 */}
       <section
-        className={`flex-1 md:flex md:flex-col bg-paper rounded-2xl shadow-card border border-warm-line overflow-hidden mt-4 md:mt-0 ${
-          convId ? 'flex flex-col' : 'hidden md:flex'
-        } h-[calc(100dvh-11rem)] md:h-auto`}
+        className={`flex-1 md:flex md:flex-col bg-paper shadow-card border border-warm-line overflow-hidden ${
+          zen
+            ? 'fixed inset-0 z-[60] rounded-none flex flex-col'
+            : `rounded-2xl mt-4 md:mt-0 ${convId ? 'flex flex-col' : 'hidden md:flex'} h-[calc(100dvh-11rem)] md:h-auto`
+        }`}
       >
         {!active ? (
           <GreetingView
@@ -584,6 +589,14 @@ function ChatInner() {
                 </div>
                 <ModeDropdown value={active.mode ?? 'auto'} onChange={changeMode} />
                 <FocusMode character={activeChar} />
+                <button
+                  onClick={() => setZen((z) => !z)}
+                  title={zen ? '退出全屏' : '一键全屏'}
+                  aria-label={zen ? '退出全屏' : '一键全屏'}
+                  className="btn-press shrink-0 p-1.5 rounded-full text-ink-soft hover:bg-cream"
+                >
+                  {zen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
                 <button
                   onClick={extractToArchive}
                   disabled={extracting || messages.length === 0}
@@ -1123,6 +1136,16 @@ function FocusMode({ character }: { character?: Character }) {
   const [endAt, setEndAt] = useState<number | null>(null)
   const [leftSec, setLeftSec] = useState(0)
   const [finished, setFinished] = useState(false)
+  const [busy, setBusy] = useState('')
+
+  // 专注开始时抓一次在场状态：「ta 此刻正在……」接 DayPlan
+  useEffect(() => {
+    if (!endAt || !character?.id) return
+    spaceApi
+      .presence()
+      .then((d) => setBusy(d.presence[character.id] ?? ''))
+      .catch(() => {})
+  }, [endAt, character?.id])
 
   useEffect(() => {
     if (!endAt) return
@@ -1170,19 +1193,21 @@ function FocusMode({ character }: { character?: Character }) {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
-            className="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-2xl bg-paper/90 backdrop-blur border border-warm-line shadow-float px-4 py-3"
+            className="fixed bottom-20 md:bottom-5 right-5 z-50 flex items-center gap-3 rounded-2xl bg-paper/90 backdrop-blur border border-warm-line shadow-float px-4 py-3"
           >
             <CharacterAvatar
               name={name}
               color={character?.color}
               avatarUrl={character?.avatar_url || null}
-              size={32}
+              size={36}
             />
             <div>
-              <div className="font-mono text-lg leading-none tabular-nums">
+              <div className="font-mono text-2xl font-semibold leading-none tabular-nums">
                 {mm}:{ss}
               </div>
-              <div className="mt-1 text-[11px] text-ink-soft">{name} 在安静陪你，别刷手机哦</div>
+              <div className="mt-1 text-[11px] text-ink-soft">
+                {busy ? `${name} ${busy}，陪你一起` : `${name} 在安静陪你，别刷手机哦`}
+              </div>
             </div>
             <button
               onClick={() => setEndAt(null)}
@@ -1197,7 +1222,7 @@ function FocusMode({ character }: { character?: Character }) {
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}
-            className="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-2xl bg-paper/95 backdrop-blur border border-tuanman/30 shadow-float px-4 py-3"
+            className="fixed bottom-20 md:bottom-5 right-5 z-50 flex items-center gap-3 rounded-2xl bg-paper/95 backdrop-blur border border-tuanman/30 shadow-float px-4 py-3"
           >
             <CharacterAvatar
               name={name}

@@ -134,6 +134,13 @@ function SettingsInner() {
         <p className="text-sm text-ink-soft leading-relaxed">
           已通过观猹账号登录，这扇门认得你。换设备也一样，敲门就能进。
         </p>
+        <p className="mt-2 text-xs text-ink-soft/80 leading-relaxed">
+          头像和昵称在{" "}
+          <a href="https://watcha.cn/" target="_blank" rel="noreferrer" className="text-crina-deep underline underline-offset-2">
+            观猹（watcha.cn）
+          </a>{" "}
+          那边改，改完这里会跟着变。
+        </p>
         <div className="mt-3 inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-baixu/12 text-baixu">
           <span className="w-1.5 h-1.5 rounded-full bg-baixu" />
           连接正常

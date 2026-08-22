@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { motion, useScroll, useTransform } from 'motion/react'
-import { DoorOpen, Sparkles, MessageCircleHeart } from 'lucide-react'
+import { BookOpen, DoorOpen, Sparkles, MessageCircleHeart } from 'lucide-react'
 import { postsApi, probeImage, spaceApi } from '../api/client'
 import type { Character, Post } from '../api/types'
 import { CharacterAvatar } from '../components/CharacterAvatar'
@@ -107,6 +107,13 @@ export function HomePage() {
               镜听空间
             </h1>
             <p className="mt-3 text-ink-soft md:text-lg">{greeting()}</p>
+            <Link
+              to="/guide"
+              className="mt-3 inline-flex items-center gap-1.5 text-xs text-crina-deep/80 hover:text-crina-deep underline underline-offset-4 decoration-crina/30"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              第一次来？翻翻小屋指南
+            </Link>
             {user === null && (
               <Link
                 to="/login"

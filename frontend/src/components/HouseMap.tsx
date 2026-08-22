@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useLocation } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { Map } from 'lucide-react'
 import { CharacterAvatar } from './CharacterAvatar'
@@ -51,14 +51,22 @@ const ROOMS: RoomSpot[] = [
 /** 小屋剖面地图：看见每个房间，点一点就走过去 */
 export function HouseMap() {
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const [hovered, setHovered] = useState<RoomSpot | null>(null)
   const [walkingTo, setWalkingTo] = useState<RoomSpot | null>(null)
 
   const go = (room: RoomSpot) => {
     if (walkingTo) return
+    // 已在目标房间：不播走动动画，直接滚回顶部（同路径 navigate 不会重挂载，walkingTo 会永远卡住）
+    if (room.path === pathname) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
     setWalkingTo(room)
     // 走动过渡：小人穿过屏幕后落地导航
     setTimeout(() => navigate(room.path), 780)
+    // 兜底：即使导航未触发重挂载也复位遮罩
+    setTimeout(() => setWalkingTo(null), 1200)
   }
 
   return (

@@ -14,6 +14,7 @@ const RoomPage = lazy(() => import('./pages/Room').then((m) => ({ default: m.Roo
 const ArticleViewPage = lazy(() => import('./pages/ArticleView').then((m) => ({ default: m.ArticleViewPage })))
 const WriterPage = lazy(() => import('./pages/Writer').then((m) => ({ default: m.WriterPage })))
 const BedroomPage = lazy(() => import('./pages/Bedroom').then((m) => ({ default: m.BedroomPage })))
+const GuidePage = lazy(() => import('./pages/Guide').then((m) => ({ default: m.GuidePage })))
 
 function PageLoading() {
   return (
@@ -120,6 +121,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading />}>
               <WriterPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="guide"
+          element={
+            <Suspense fallback={<PageLoading />}>
+              <GuidePage />
             </Suspense>
           }
         />
