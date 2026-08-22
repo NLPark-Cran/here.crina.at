@@ -32,6 +32,8 @@ async def delete_memory(memory_id: str, user: User = Depends(get_current_user), 
     mem = await db.get(Memory, parse_uuid(memory_id))
     if not mem or mem.user_id != user.id:
         raise HTTPException(404, "记忆不存在")
+    from ..engine.memory import unlink_memory
+    await unlink_memory(db, user.id, mem.id)
     await db.delete(mem)
     await db.commit()
     return {"ok": True}

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { motion } from 'motion/react'
-import { BookOpen, Eye, PenLine } from 'lucide-react'
+import { BookOpen, Bookmark, Check, Eye, PenLine } from 'lucide-react'
 import { articlesApi, ApiError } from '../api/client'
+import { useAuth } from '../store/auth'
 import type { Article } from '../api/types'
 import { CharacterAvatar } from '../components/CharacterAvatar'
 import { Markdown } from '../components/Markdown'
@@ -14,6 +15,43 @@ export function ArticleViewPage() {
   const [isAuthor, setIsAuthor] = useState(false)
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(false)
+  const user = useAuth((s) => s.user)
+  // 摘抄即记忆：划词弹「收进档案馆」（R9.4）
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [clipPop, setClipPop] = useState<{ x: number; y: number; text: string } | null>(null)
+  const [clipState, setClipState] = useState<'idle' | 'saving' | 'done'>('idle')
+
+  const onSelect = () => {
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || !contentRef.current) {
+      setClipPop(null)
+      return
+    }
+    const text = (sel.toString() || '').trim()
+    if (text.length < 2 || text.length > 500 || !contentRef.current.contains(sel.anchorNode)) {
+      setClipPop(null)
+      return
+    }
+    const range = sel.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
+    setClipState('idle')
+    setClipPop({ x: rect.left + rect.width / 2, y: rect.top - 8, text })
+  }
+
+  const saveClip = async () => {
+    if (!clipPop || !id || clipState === 'saving') return
+    setClipState('saving')
+    try {
+      await articlesApi.clip(id, clipPop.text)
+      setClipState('done')
+      setTimeout(() => setClipPop(null), 1200)
+    } catch (e) {
+      setClipState('idle')
+      setClipPop(null)
+      alert(e instanceof ApiError ? e.message : '没收进去，再试一次？')
+    }
+    window.getSelection()?.removeAllRanges()
+  }
 
   useEffect(() => {
     if (!id) return
@@ -91,10 +129,30 @@ export function ArticleViewPage() {
             </Link>
           )}
         </div>
-        <div className="mt-6 pt-6 border-t border-warm-line">
+        <div ref={contentRef} onMouseUp={onSelect} className="mt-6 pt-6 border-t border-warm-line">
           <Markdown content={article.content} />
         </div>
       </motion.article>
+
+      {/* 划词摘抄 popover */}
+      {user && clipPop && (
+        <div
+          className="fixed z-50 -translate-x-1/2 -translate-y-full"
+          style={{ left: clipPop.x, top: clipPop.y }}
+        >
+          <button
+            onClick={saveClip}
+            disabled={clipState === 'saving'}
+            className="btn-press inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-baixu text-white text-xs shadow-float hover:opacity-90 disabled:opacity-60"
+          >
+            {clipState === 'done' ? (
+              <><Check className="w-3.5 h-3.5" /> 收好了</>
+            ) : (
+              <><Bookmark className="w-3.5 h-3.5" /> {clipState === 'saving' ? '收进档案馆…' : '收进档案馆'}</>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

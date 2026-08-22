@@ -226,6 +226,16 @@ async def toggle_favorite(post_id: str, user: User = Depends(get_current_user),
     else:
         db.add(PostFavorite(post_id=pid, user_id=user.id))
         on = True
+        # 摘抄即记忆：收藏 → 写入 clip 记忆（R9.4）
+        from ..engine.memory import clip_memory
+        post = await db.get(Post, pid)
+        if post:
+            author_name = post.author_id
+            if post.author_type == "character":
+                from ..models import Character
+                ch = await db.get(Character, post.author_id)
+                author_name = ch.name if ch else post.author_id
+            await clip_memory(db, user, post.content[:120], f"{author_name}的一句话")
     await db.commit()
     return {"favorited": on}
 

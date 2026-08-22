@@ -113,6 +113,7 @@ export const articlesApi = {
   remove: (id: string) => del<{ ok: boolean }>(`/api/articles/${id}`),
   compose: (body: { raw_text: string; kind: string; conversation_id?: string }) =>
     post<ComposeDraft>('/api/articles/compose', body),
+  clip: (id: string, text: string) => post<{ ok: boolean }>(`/api/articles/${id}/clip`, { text }),
 }
 
 export const roomsApi = {

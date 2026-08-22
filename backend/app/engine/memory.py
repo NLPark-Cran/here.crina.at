@@ -27,11 +27,11 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 async def _recall(db: AsyncSession, user: User, query: str) -> list:
-    """语义召回：候选池按 salience 取前 RECALL_POOL，有余力的用 embedding 余弦重排。
-    无向量/无查询时退化为纯重要性排序。"""
+    """语义召回 + 关联图两跳：
+    第一跳 embedding+salience 混合取 top8 → 第二跳沿 links 各扩 1 条（去重、标注 via）→ 补足 top12。"""
     import logging
     mems = list((await db.execute(
-        select(Memory).where(Memory.user_id == user.id)
+        select(Memory).where(Memory.user_id == user.id, Memory.kind != "archived")
         .order_by(desc(Memory.salience), desc(Memory.created_at)).limit(RECALL_POOL)
     )).scalars().all())
     if not mems:
@@ -54,7 +54,24 @@ async def _recall(db: AsyncSession, user: User, query: str) -> list:
         except Exception:
             return 0.0
 
-    return sorted(mems, key=score, reverse=True)[:HOT_MEMORY_LIMIT]
+    first_hop = sorted(mems, key=score, reverse=True)[:8]
+    # 第二跳：沿 links 各扩 1 条最相关的（两跳检索）
+    seen = {m.id for m in first_hop}
+    by_id = {str(m.id): m for m in mems}
+    second_hop = []
+    for m in first_hop:
+        try:
+            link_ids = json.loads(m.links or "[]")
+        except Exception:
+            continue
+        for lid in link_ids:
+            linked = by_id.get(lid)
+            if linked and linked.id not in seen:
+                seen.add(linked.id)
+                linked._via = m.content[:20]  # 标注来源（召回展示用）
+                second_hop.append(linked)
+                break  # 每条一跳记忆只扩 1 条
+    return (first_hop + second_hop)[:HOT_MEMORY_LIMIT]
 
 
 # SOUL 前缀缓存（WORLD+人设是不变的大字符串，按 character+是否站主缓存）
@@ -122,7 +139,10 @@ async def build_context(db: AsyncSession, user: User, character: Character,
     )).scalar_one_or_none()
     mems = await _recall(db, user, last_user_msg or "")
     if mems:
-        lines = [f"- [{m.kind}] {m.content}" for m in mems]
+        lines = []
+        for m in mems:
+            via = getattr(m, "_via", "")
+            lines.append(f"- [{m.kind}] {m.content}" + (f"（由「{via}」想起）" if via else ""))
         mem_block = "\n\n# 你记得的关于这位朋友的事\n" + "\n".join(lines)
 
     # 关系档位决定亲昵度（安风反馈：挚友不该若即若离）
@@ -171,115 +191,269 @@ async def build_context(db: AsyncSession, user: User, character: Character,
     return messages
 
 
-EXTRACT_PROMPT = """你是记忆管理员。根据新对话，维护关于用户的长期记忆库。
+# ---------- R9 记忆写入管道：守门员 → 候选抽取 → 恒定成本四选一 ----------
 
-## 什么值得记
-- fact：关于用户的稳定客观事实（身份、经历、拥有物、常住地、身体状况等）
-- preference：用户明确表达的偏好（喜欢/讨厌/习惯）
+GATEKEEPER_PROMPT = """只看这段新对话，有没有值得长期记住的关于用户的事实或偏好？
+（身份、经历、拥有物、明确说出的好恶才算；闲聊、客套、一时情绪、角色扮演内容都不算）
+只回答一个字：有 / 没有
 
-## 绝不记（重点！）
-- 角色扮演、编故事、玩游戏时产生的虚构内容（那不是用户的真实信息）
-- 对话过程的描述（如"用户纠正了某角色""用户问了某个问题"）
-- 过度推测的心理画像（如"用户有强烈的向往""用户很孤独"）——只记用户明确说出来的
-- 一次性闲聊、客套、当前情绪
-- 与已有记忆重复的
-
-## 操作
-对比已有记忆，输出操作列表：
-- {"op": "add", "kind": "fact|preference", "content": "一句话", "salience": 1-10, "evidence": "用户原话"}
-- {"op": "update", "id": "已有记忆id", "content": "更准确的表述"}  （已有记忆不准/过时/需补充时）
-- {"op": "delete", "id": "已有记忆id"}  （已有记忆是臆想、虚构或错误时，果断删）
-没有任何值得做的就输出空数组 []。宁缺毋滥。
-
-## 已有记忆
-__EXISTING__
-
-## 新对话
+新对话：
 __DIALOGUE__"""
+
+CANDIDATE_PROMPT = """从这段新对话中抽取关于用户的候选长期记忆。
+
+## 只从用户自己说的话里提取（角色说的只是语境，绝不作为依据）
+## 什么值得记
+- fact：关于用户的稳定客观事实（身份、经历、拥有物、常住地等）
+- preference：用户明确表达的偏好（喜欢/讨厌/习惯）
+## 绝不记
+- 角色扮演、编故事、玩游戏时产生的虚构内容
+- 对话过程的描述（如"用户纠正了某角色"）
+- 过度推测的心理画像——只记用户明确说出来的
+- 一次性闲聊、客套、当前情绪
+
+输出 JSON 数组，每条：{"kind": "fact|preference", "content": "一句话陈述", "salience": 1-10, "evidence": "用户原话逐字摘录（必须是对话里用户说的原文片段）"}
+没有值得记的就输出 []。宁缺毋滥，最多 5 条。
+
+新对话：
+__DIALOGUE__"""
+
+DECIDE_PROMPT = """记忆入库裁决。有一条候选新记忆，和最相似的若干条已有记忆。
+
+候选：__NEW__
+
+已有相似记忆：
+__SIMILAR__
+
+决定如何处理候选，输出一个 JSON 对象：
+- {"action": "create", "links": [已有记忆id...]} —— 是全新信息；links 填与它有因果/同属关系的已有记忆 id（没有就 []）
+- {"action": "merge", "id": "已有记忆id", "merged": "合并后的准确表述"} —— 候选是对某条的补充/更新
+- {"action": "conflict", "id": "已有记忆id", "links": []} —— 候选与某条矛盾（旧的归档，新的入库）
+- {"action": "skip"} —— 候选与已有记忆等价重复
+只输出 JSON。"""
+
+
+def _parse_json(text: str):
+    """容错解析 LLM 输出的 JSON（去 markdown 围栏）"""
+    raw = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    return json.loads(raw)
+
+
+async def _similar_memories(db: AsyncSession, user: User, vec: list[float],
+                            top_k: int = 5) -> list:
+    """恒定成本：向量召回与候选最相似的 topK 已有记忆"""
+    mems = list((await db.execute(
+        select(Memory).where(Memory.user_id == user.id, Memory.embedding != "")
+        .order_by(desc(Memory.salience)).limit(RECALL_POOL)
+    )).scalars().all())
+    scored = []
+    for m in mems:
+        try:
+            scored.append((_cosine(vec, json.loads(m.embedding)), m))
+        except Exception:
+            continue
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [m for sim, m in scored[:top_k] if sim > 0.55]  # 低于阈值不算"相似"
+
+
+async def _apply_links(db: AsyncSession, mem: Memory, link_ids: list[str], by_id: dict):
+    """双向关联：新条目与已有记忆互写 links"""
+    import uuid as _uuid
+    own = set(json.loads(mem.links or "[]"))
+    for lid in link_ids[:5]:
+        try:
+            lid_uuid = _uuid.UUID(str(lid))
+        except (ValueError, AttributeError):
+            continue
+        if lid_uuid == mem.id:
+            continue
+        other = by_id.get(str(lid))
+        if not other:
+            continue
+        own.add(str(lid))
+        other_links = set(json.loads(other.links or "[]"))
+        if str(mem.id) not in other_links:
+            other_links.add(str(mem.id))
+            other.links = json.dumps(sorted(other_links))
+    mem.links = json.dumps(sorted(own))
 
 
 async def extract_memories(db: AsyncSession, user: User, character_id: str,
                            new_exchange: list[dict], api_key: str | None = None):
-    """后台记忆维护：mem0 式 add/update/delete 操作（带原文证据，宁缺毋滥）"""
+    """R9 记忆维护：守门员预判 → 候选抽取（主客体过滤）→ topK 召回四选一（恒定成本）"""
     import logging
     log = logging.getLogger("crina.memory")
 
-    existing = (await db.execute(
-        select(Memory).where(Memory.user_id == user.id)
-        .order_by(desc(Memory.salience)).limit(40)
-    )).scalars().all()
-    existing_block = "\n".join(f'- id={m.id} [{m.kind}] {m.content}' for m in existing) or "（空）"
-    dialogue = "\n".join(f"{'用户' if m['role'] == 'user' else '角色'}: {m['content'][:300]}"
-                         for m in new_exchange[-6:])
-    prompt = EXTRACT_PROMPT.replace("__EXISTING__", existing_block).replace("__DIALOGUE__", dialogue)
+    # 主客体过滤·输入侧：用户消息是提取对象，角色回复仅作语境标注
+    dialogue = "\n".join(
+        (f"用户: {m['content'][:300]}" if m['role'] == 'user'
+         else f"（语境）角色: {m['content'][:200]}")
+        for m in new_exchange[-6:]
+    )
+    user_text = "\n".join(m['content'] for m in new_exchange if m['role'] == 'user')
+    if not user_text.strip():
+        return
 
     try:
-        raw = await tokendance.chat_once([{"role": "user", "content": prompt}],
-                                         api_key=api_key, temperature=0.3, max_tokens=600)
-        raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        ops = json.loads(raw)
-        if not isinstance(ops, list):
+        # R9.1 守门员：小参数二元预判，闲聊直接返回（提取调用砍掉大半）
+        gate = await tokendance.chat_once(
+            [{"role": "user", "content": GATEKEEPER_PROMPT.replace("__DIALOGUE__", dialogue)}],
+            api_key=api_key, temperature=0, max_tokens=5)
+        if "没有" in gate:
+            await _backfill_embeddings(db, user, api_key)
+            return
+
+        raw = await tokendance.chat_once(
+            [{"role": "user", "content": CANDIDATE_PROMPT.replace("__DIALOGUE__", dialogue)}],
+            api_key=api_key, temperature=0.3, max_tokens=600)
+        candidates = _parse_json(raw)
+        if not isinstance(candidates, list) or not candidates:
+            await _backfill_embeddings(db, user, api_key)
             return
     except Exception:
         log.exception("记忆抽取失败")
         return
 
-    by_id = {str(m.id): m for m in existing}
     applied = 0
-    pending_embed: list[tuple[object, str]] = []  # (记忆对象/None, 待向量化文本)
-    for item in ops[:5]:
+    for cand in candidates[:5]:
         try:
-            op = item.get("op")
-            if op == "add":
-                content = str(item["content"]).strip()
-                if len(content) < 4:
-                    continue
-                kind = item["kind"] if item.get("kind") in ("fact", "preference") else "fact"
-                salience = min(10, max(1, int(item.get("salience", 5))))
-                evidence = str(item.get("evidence", ""))[:300]
-                dup = (await db.execute(
-                    select(Memory).where(Memory.user_id == user.id, Memory.content == content)
-                )).scalar_one_or_none()
-                if dup:
-                    continue
-                mem = Memory(user_id=user.id, character_id=character_id, kind=kind,
-                             content=content, salience=salience, evidence=evidence)
-                db.add(mem)
-                pending_embed.append((mem, content))
+            content = str(cand.get("content", "")).strip()
+            if len(content) < 4:
+                continue
+            # 主客体过滤·代码侧：evidence 必须是用户消息的子串，否则整条丢弃
+            evidence = str(cand.get("evidence", ""))[:300].strip()
+            if not evidence or evidence not in user_text:
+                continue
+            kind = cand["kind"] if cand.get("kind") in ("fact", "preference") else "fact"
+            salience = min(10, max(1, int(cand.get("salience", 5))))
+            # 精确文本匹配直接 skip（零成本）
+            dup = (await db.execute(
+                select(Memory).where(Memory.user_id == user.id, Memory.content == content)
+            )).scalar_one_or_none()
+            if dup:
+                continue
+
+            # 向量召回 top5 相似记忆
+            try:
+                vec = (await tokendance.embed([content[:500]], api_key=api_key))[0]
+            except Exception:
+                vec = None
+            similar = await _similar_memories(db, user, vec) if vec else []
+
+            if not similar:
+                # 无相似直接 create（不调 LLM）
+                db.add(Memory(user_id=user.id, character_id=character_id, kind=kind,
+                              content=content, salience=salience, evidence=evidence,
+                              embedding=json.dumps(vec) if vec else ""))
                 applied += 1
-            elif op == "update":
-                mem = by_id.get(str(item.get("id")))
-                if mem:
-                    new_content = str(item["content"]).strip()
-                    if len(new_content) >= 4:
-                        mem.content = new_content
-                        pending_embed.append((mem, new_content))
-                        applied += 1
-            elif op == "delete":
-                mem = by_id.get(str(item.get("id")))
-                if mem:
-                    await db.delete(mem)
+                continue
+
+            # LLM 四选一裁决（恒定成本：只看 top5，不遍历全量）
+            similar_block = "\n".join(f'- id={m.id} [{m.kind}] {m.content}' for m in similar)
+            by_id = {str(m.id): m for m in similar}
+            try:
+                draw = await tokendance.chat_once(
+                    [{"role": "user", "content": DECIDE_PROMPT.replace(
+                        "__NEW__", content).replace("__SIMILAR__", similar_block)}],
+                    api_key=api_key, temperature=0, max_tokens=300)
+                decision = _parse_json(draw)
+            except Exception:
+                decision = {"action": "create", "links": []}  # 故障降级 create：写入永不丢
+
+            action = decision.get("action")
+            if action == "skip":
+                continue
+            if action == "merge":
+                mem = by_id.get(str(decision.get("id")))
+                merged = str(decision.get("merged", "")).strip()
+                if mem and len(merged) >= 4:
+                    mem.content = merged
+                    mem.salience = max(mem.salience, salience)
+                    try:
+                        mem.embedding = json.dumps((await tokendance.embed([merged[:500]], api_key=api_key))[0])
+                    except Exception:
+                        pass
                     applied += 1
+                continue
+            if action == "conflict":
+                old = by_id.get(str(decision.get("id")))
+                if old:
+                    old.kind = "archived"  # 冲突归档：旧条目标记归档，不再参与召回
+                    old.salience = 0
+                    await unlink_memory(db, user.id, old.id)
+            # create（含 conflict 后的新条目）
+            mem = Memory(user_id=user.id, character_id=character_id, kind=kind,
+                         content=content, salience=salience, evidence=evidence,
+                         embedding=json.dumps(vec) if vec else "")
+            db.add(mem)
+            await db.flush()  # 拿到 mem.id 再写双向 links
+            await _apply_links(db, mem, decision.get("links") or [], by_id)
+            applied += 1
         except Exception:
             continue
-    # 存量回填：顺带把没有向量的记忆补上（每次最多 30 条，随聊天自然补齐）
+
+    await _backfill_embeddings(db, user, api_key)
+    if applied:
+        await db.commit()
+        log.info("记忆维护完成 user=%s applied=%d", user.id, applied)
+
+
+async def _backfill_embeddings(db: AsyncSession, user: User, api_key: str | None):
+    """存量回填：没有向量的记忆随聊天自然补齐（每次最多 30 条）"""
+    import logging
     backfill = list((await db.execute(
         select(Memory).where(Memory.user_id == user.id, Memory.embedding == "")
         .order_by(desc(Memory.salience)).limit(30)
     )).scalars().all())
-    for m in backfill:
-        pending_embed.append((m, m.content))
-    if pending_embed:
-        try:
-            vecs = await tokendance.embed([t[:500] for _, t in pending_embed], api_key=api_key)
-            for (m, _), vec in zip(pending_embed, vecs, strict=False):
-                m.embedding = json.dumps(vec)
-            applied += 0  # 向量写入不改变 ops 计数
-        except Exception:
-            log.exception("记忆向量化失败（不影响记忆本身）")
-    if applied or pending_embed:
+    if not backfill:
+        return
+    try:
+        vecs = await tokendance.embed([m.content[:500] for m in backfill], api_key=api_key)
+        for m, vec in zip(backfill, vecs, strict=False):
+            m.embedding = json.dumps(vec)
         await db.commit()
-        log.info("记忆维护完成 user=%s ops=%d embedded=%d", user.id, applied, len(pending_embed))
+    except Exception:
+        logging.getLogger("crina.memory").exception("记忆向量化失败（不影响记忆本身）")
+
+
+async def clip_memory(db: AsyncSession, user: User, text: str, source: str,
+                      api_key: str | None = None):
+    """摘抄即记忆：收藏/划线 → 写一条 kind='clip' 记忆（salience 4），后续对话自然召回。
+    source 例：「crina 的一句话」「《文章标题》」"""
+    import logging
+    text = text.strip()
+    if len(text) < 4:
+        return
+    content = f"用户收藏了{source}：{text[:80]}"
+    dup = (await db.execute(
+        select(Memory).where(Memory.user_id == user.id, Memory.kind == "clip",
+                             Memory.content == content)
+    )).scalar_one_or_none()
+    if dup:
+        return
+    mem = Memory(user_id=user.id, character_id="crina", kind="clip",
+                 content=content, salience=4, evidence=text[:300])
+    db.add(mem)
+    try:
+        mem.embedding = json.dumps((await tokendance.embed([content[:500]], api_key=api_key))[0])
+    except Exception:
+        logging.getLogger("crina.memory").exception("摘抄向量化失败（不影响写入）")
+    await db.commit()
+
+
+async def unlink_memory(db: AsyncSession, user_id, memory_id):
+    """删除/归档记忆时清理指向它的 links（防孤儿引用）"""
+    import logging
+    mid = str(memory_id)
+    holders = list((await db.execute(
+        select(Memory).where(Memory.user_id == user_id, Memory.links.like(f"%{mid}%"))
+    )).scalars().all())
+    for m in holders:
+        try:
+            links = [x for x in json.loads(m.links or "[]") if x != mid]
+            m.links = json.dumps(links)
+        except Exception:
+            logging.getLogger("crina.memory").exception("清理 links 失败 mem=%s", m.id)
 
 
 SUMMARY_PROMPT = """把这段对话的进展合并进已有的对话摘要。保留关键事实与情绪线索，控制在 150 字以内。

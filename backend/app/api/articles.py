@@ -75,6 +75,32 @@ class ComposeBody(BaseModel):
         return v
 
 
+class ClipBody(BaseModel):
+    text: str = Field(min_length=2, max_length=500)
+
+
+@router.post("/{article_id}/clip")
+async def clip_article(article_id: str, body: ClipBody, user: User = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    """摘抄即记忆：文章划词 → 存档案馆（wiki kind='clip'）+ 写 clip 记忆（R9.4）"""
+    from ..security import parse_uuid
+    article = await db.get(Article, parse_uuid(article_id))
+    if not article:
+        raise HTTPException(404, "文章不存在")
+    text = body.text.strip()
+    if text not in article.content:
+        raise HTTPException(400, "这段话不在原文里哦")
+    if not user.is_owner and not await rate_limit("clip", str(user.id), 20):
+        raise HTTPException(429, "今天摘抄得够多啦，明天再来")
+    from ..models import WikiPage
+    db.add(WikiPage(user_id=user.id, title=f"摘抄 · {article.title[:40]}",
+                    content=text, mode="clip", public=False))
+    from ..engine.memory import clip_memory
+    await clip_memory(db, user, text, f"《{article.title}》")
+    await db.commit()
+    return {"ok": True}
+
+
 @router.post("/compose")
 async def compose(body: ComposeBody, user: User = Depends(get_current_user),
                   db: AsyncSession = Depends(get_db)):
